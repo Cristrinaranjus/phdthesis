@@ -1,0 +1,202 @@
+---
+title: "Data analysis for LOO bayesian index"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r libraries}
+library(readr)
+library(tidyverse)
+```
+
+```{r import data}
+data <- read_csv("dat/df_total_datos.csv")
+```
+
+LOO (Leave-one-out) es un índice de ajuste relativo para evaluar y comparar
+modelos estadísticos. Se basa en el concepto de validación cruzada de dejar uno
+fuera (Leave-One-Out Cross-Validation).
+
+La **validación cruzada** es un método para evaluar el rendimiento de un modelo
+predictivo, que consiste en:
+
+1.  Entrenar un modelo con todos los datos excepto uno.
+2.  Evaluar el modelo con el dato que queda fuera.
+3.  Repetición del proceso para cada dato del conjunto de datos (en nuestro
+    caso, cada modelo simulado?)
+4.  Se promedia el error de predicción obtenido en cada iteración.
+
+En nuestro estudio de simulación se calculó utilizando la función loo.brmsfit()
+-teniendo como alias la función LOO()- del paquete `brms`.
+
+Una vez calculado, los valores del LOO se pueden utilizar como criterio en la
+comparación de modelos, de forma que tiene un funcionamiento similar al AIC
+(Akaike Information Criterion) o el BIC (Bayesian Information Criteiron), pero
+adaptado al enfoque bayesiano. De esta forma, permite comparar diferentes
+modelos bayesianos basándose en su capacidad de predecir datos nuevos y favorece
+a modelos con mejor ajuste y menor complejidad.
+
+Como ventajas, podemos destacar la eficiencia (al evitar la necesidad de re-
+entrenar el modelo múltiples veces), la adaptabilidad (se adapta a modelos
+complejos y de alta dimensionalidad) y robustez (reduce el riesgo de sobreajste
+al evaluar modelos utilizando datos no vistos). **El LOO bayesiano es
+especialmente** **útil para modelos bayesianos complejos que pueden ser
+difíciles de evaluar con** **métodos tradicionales**. Un menor valor de LOO
+indica mejor capacidad predictiva.
+
+Para analizar la selección del modelo correcto a través de LOO, tenemos que
+seguir varios pasos:
+
+1)  Aislar las variables que contienen los valores "LOO" para cada modelo
+    estimado.
+2)  Aislar las variables "factor" de la simulación, especialmente "modpob".
+3)  Crear una variable de selección del modelo correcto para cada uno de los
+    modelos bayesianos
+
+```{r}
+data |> select(contains("loo")) |> colnames()
+```
+
+```{r}
+data_LOO <- data |> select(contains("loo"), modpob, TE, MR, N) 
+```
+
+```{r}
+data_LOO |> mutate(
+  # N1
+  LOO_bn1 = case_when(
+    #modpob == 0 (minimal)
+    modpob == 0 & ((min_LOO_brms < int_LOO_n1_brms) & (min_LOO_brms < slop_LOO_n1_brms) & (min_LOO_brms < max_LOO_n1_brms)) ~ 1,
+    modpob == 0 & ((min_LOO_brms > int_LOO_n1_brms) & (min_LOO_brms > slop_LOO_n1_brms) & (min_LOO_brms > max_LOO_n1_brms)) ~ 0,
+    
+   #modpob == 1 (intersecciones)  
+    modpob == 1 & ((int_LOO_n1_brms < max_LOO_n1_brms) & (int_LOO_n1_brms < slop_LOO_n1_brms) & (int_LOO_n1_brms < min_LOO_brms)) ~ 1,
+   modpob == 1 & ((int_LOO_n1_brms > max_LOO_n1_brms) & (int_LOO_n1_brms > slop_LOO_n1_brms) & (int_LOO_n1_brms > min_LOO_brms)) ~ 0,
+   
+   #modpob == 2 (pendientes)
+   modpob == 2 & ((slop_LOO_n1_brms < max_LOO_n1_brms) & (slop_LOO_n1_brms <  int_LOO_n1_brms) & (slop_LOO_n1_brms < min_LOO_brms)) ~ 1,
+   modpob == 2 & ((slop_LOO_n1_brms > max_LOO_n1_brms) & (slop_LOO_n1_brms >  int_LOO_n1_brms) & (slop_LOO_n1_brms > min_LOO_brms)) ~ 0,
+   
+   #modpob == 3 (maximal)
+   modpob == 3 & ((max_LOO_n1_brms < slop_LOO_n1_brms) & (max_LOO_n1_brms < int_LOO_n1_brms) & (max_LOO_n1_brms < min_LOO_brms)) ~ 1,
+   modpob == 3 & ((max_LOO_n1_brms > slop_LOO_n1_brms) & (max_LOO_n1_brms > int_LOO_n1_brms) & (max_LOO_n1_brms > min_LOO_brms)) ~ 0,
+  ),
+  
+  #N2
+    LOO_bn2 = case_when(
+    #modpob == 0 (minimal)
+    modpob == 0 & ((min_LOO_brms < int_LOO_n2_brms) & (min_LOO_brms < slop_LOO_n2_brms) & (min_LOO_brms < max_LOO_n2_brms)) ~ 1,
+    modpob == 0 & ((min_LOO_brms > int_LOO_n2_brms) & (min_LOO_brms > slop_LOO_n2_brms) & (min_LOO_brms > max_LOO_n2_brms)) ~ 0,
+    
+   #modpob == 1 (intersecciones)  
+    modpob == 1 & ((int_LOO_n2_brms < max_LOO_n2_brms) & (int_LOO_n2_brms < slop_LOO_n2_brms) & (int_LOO_n2_brms < min_LOO_brms)) ~ 1,
+   modpob == 1 & ((int_LOO_n2_brms > max_LOO_n2_brms) & (int_LOO_n2_brms > slop_LOO_n2_brms) & (int_LOO_n2_brms > min_LOO_brms)) ~ 0,
+   
+   #modpob == 2 (pendientes)
+   modpob == 2 & ((slop_LOO_n2_brms < max_LOO_n2_brms) & (slop_LOO_n2_brms <  int_LOO_n2_brms) & (slop_LOO_n2_brms < min_LOO_brms)) ~ 1,
+   modpob == 2 & ((slop_LOO_n2_brms > max_LOO_n2_brms) & (slop_LOO_n2_brms >  int_LOO_n2_brms) & (slop_LOO_n2_brms > min_LOO_brms)) ~ 0,
+   
+   #modpob == 3 (maximal)
+   modpob == 3 & ((max_LOO_n2_brms < slop_LOO_n2_brms) & (max_LOO_n2_brms < int_LOO_n2_brms) & (max_LOO_n2_brms < min_LOO_brms)) ~ 1,
+   modpob == 3 & ((max_LOO_n2_brms > slop_LOO_n2_brms) & (max_LOO_n2_brms > int_LOO_n2_brms) & (max_LOO_n2_brms > min_LOO_brms)) ~ 0,
+  ),
+  
+    #N3
+    LOO_bn3 = case_when(
+    #modpob == 0 (minimal)
+    modpob == 0 & ((min_LOO_brms < int_LOO_n3_brms) & (min_LOO_brms < slop_LOO_n3_brms) & (min_LOO_brms < max_LOO_n3_brms)) ~ 1,
+    modpob == 0 & ((min_LOO_brms > int_LOO_n3_brms) & (min_LOO_brms > slop_LOO_n3_brms) & (min_LOO_brms > max_LOO_n3_brms)) ~ 0,
+    
+   #modpob == 1 (intersecciones)  
+    modpob == 1 & ((int_LOO_n3_brms < max_LOO_n3_brms) & (int_LOO_n3_brms < slop_LOO_n3_brms) & (int_LOO_n3_brms < min_LOO_brms)) ~ 1,
+   modpob == 1 & ((int_LOO_n3_brms > max_LOO_n3_brms) & (int_LOO_n3_brms > slop_LOO_n3_brms) & (int_LOO_n3_brms > min_LOO_brms)) ~ 0,
+   
+   #modpob == 2 (pendientes)
+   modpob == 2 & ((slop_LOO_n3_brms < max_LOO_n3_brms) & (slop_LOO_n3_brms <  int_LOO_n3_brms) & (slop_LOO_n3_brms < min_LOO_brms)) ~ 1,
+   modpob == 2 & ((slop_LOO_n3_brms > max_LOO_n3_brms) & (slop_LOO_n3_brms >  int_LOO_n3_brms) & (slop_LOO_n3_brms > min_LOO_brms)) ~ 0,
+   
+   #modpob == 3 (maximal)
+   modpob == 3 & ((max_LOO_n3_brms < slop_LOO_n3_brms) & (max_LOO_n3_brms < int_LOO_n3_brms) & (max_LOO_n3_brms < min_LOO_brms)) ~ 1,
+   modpob == 3 & ((max_LOO_n3_brms > slop_LOO_n3_brms) & (max_LOO_n3_brms > int_LOO_n3_brms) & (max_LOO_n3_brms > min_LOO_brms)) ~ 0,
+  ),
+  
+# C1
+
+   LOO_bc1 = case_when(
+    #modpob == 0 (minimal)
+    modpob == 0 & ((min_LOO_brms < int_LOO_c1_brms) & (min_LOO_brms < slop_LOO_c1_brms) & (min_LOO_brms < max_LOO_c1_brms)) ~ 1,
+    modpob == 0 & ((min_LOO_brms > int_LOO_c1_brms) & (min_LOO_brms > slop_LOO_c1_brms) & (min_LOO_brms > max_LOO_c1_brms)) ~ 0,
+    
+   #modpob == 1 (intersecciones)  
+    modpob == 1 & ((int_LOO_c1_brms < max_LOO_c1_brms) & (int_LOO_c1_brms < slop_LOO_c1_brms) & (int_LOO_c1_brms < min_LOO_brms)) ~ 1,
+   modpob == 1 & ((int_LOO_c1_brms > max_LOO_c1_brms) & (int_LOO_c1_brms > slop_LOO_c1_brms) & (int_LOO_c1_brms > min_LOO_brms)) ~ 0,
+   
+   #modpob == 2 (pendientes)
+   modpob == 2 & ((slop_LOO_c1_brms < max_LOO_c1_brms) & (slop_LOO_c1_brms <  int_LOO_c1_brms) & (slop_LOO_c1_brms < min_LOO_brms)) ~ 1,
+   modpob == 2 & ((slop_LOO_c1_brms > max_LOO_c1_brms) & (slop_LOO_c1_brms >  int_LOO_c1_brms) & (slop_LOO_c1_brms > min_LOO_brms)) ~ 0,
+   
+   #modpob == 3 (maximal)
+   modpob == 3 & ((max_LOO_c1_brms < slop_LOO_c1_brms) & (max_LOO_c1_brms < int_LOO_c1_brms) & (max_LOO_c1_brms < min_LOO_brms)) ~ 1,
+   modpob == 3 & ((max_LOO_c1_brms > slop_LOO_c1_brms) & (max_LOO_c1_brms > int_LOO_c1_brms) & (max_LOO_c1_brms > min_LOO_brms)) ~ 0,
+  ),
+  
+  #c2
+    LOO_bc2 = case_when(
+    #modpob == 0 (minimal)
+    modpob == 0 & ((min_LOO_brms < int_LOO_c2_brms) & (min_LOO_brms < slop_LOO_c2_brms) & (min_LOO_brms < max_LOO_c2_brms)) ~ 1,
+    modpob == 0 & ((min_LOO_brms > int_LOO_c2_brms) & (min_LOO_brms > slop_LOO_c2_brms) & (min_LOO_brms > max_LOO_c2_brms)) ~ 0,
+    
+   #modpob == 1 (intersecciones)  
+    modpob == 1 & ((int_LOO_c2_brms < max_LOO_c2_brms) & (int_LOO_c2_brms < slop_LOO_c2_brms) & (int_LOO_c2_brms < min_LOO_brms)) ~ 1,
+   modpob == 1 & ((int_LOO_c2_brms > max_LOO_c2_brms) & (int_LOO_c2_brms > slop_LOO_c2_brms) & (int_LOO_c2_brms > min_LOO_brms)) ~ 0,
+   
+   #modpob == 2 (pendientes)
+   modpob == 2 & ((slop_LOO_c2_brms < max_LOO_c2_brms) & (slop_LOO_c2_brms <  int_LOO_c2_brms) & (slop_LOO_c2_brms < min_LOO_brms)) ~ 1,
+   modpob == 2 & ((slop_LOO_c2_brms > max_LOO_c2_brms) & (slop_LOO_c2_brms >  int_LOO_c2_brms) & (slop_LOO_c2_brms > min_LOO_brms)) ~ 0,
+   
+   #modpob == 3 (maximal)
+   modpob == 3 & ((max_LOO_c2_brms < slop_LOO_c2_brms) & (max_LOO_c2_brms < int_LOO_c2_brms) & (max_LOO_c2_brms < min_LOO_brms)) ~ 1,
+   modpob == 3 & ((max_LOO_c2_brms > slop_LOO_c2_brms) & (max_LOO_c2_brms > int_LOO_c2_brms) & (max_LOO_c2_brms > min_LOO_brms)) ~ 0,
+  ),
+  
+    #c3
+    LOO_bc3 = case_when(
+    #modpob == 0 (minimal)
+    modpob == 0 & ((min_LOO_brms < int_LOO_c3_brms) & (min_LOO_brms < slop_LOO_c3_brms) & (min_LOO_brms < max_LOO_c3_brms)) ~ 1,
+    modpob == 0 & ((min_LOO_brms > int_LOO_c3_brms) & (min_LOO_brms > slop_LOO_c3_brms) & (min_LOO_brms > max_LOO_c3_brms)) ~ 0,
+    
+   #modpob == 1 (intersecciones)  
+    modpob == 1 & ((int_LOO_c3_brms < max_LOO_c3_brms) & (int_LOO_c3_brms < slop_LOO_c3_brms) & (int_LOO_c3_brms < min_LOO_brms)) ~ 1,
+   modpob == 1 & ((int_LOO_c3_brms > max_LOO_c3_brms) & (int_LOO_c3_brms > slop_LOO_c3_brms) & (int_LOO_c3_brms > min_LOO_brms)) ~ 0,
+   
+   #modpob == 2 (pendientes)
+   modpob == 2 & ((slop_LOO_c3_brms < max_LOO_c3_brms) & (slop_LOO_c3_brms <  int_LOO_c3_brms) & (slop_LOO_c3_brms < min_LOO_brms)) ~ 1,
+   modpob == 2 & ((slop_LOO_c3_brms > max_LOO_c3_brms) & (slop_LOO_c3_brms >  int_LOO_c3_brms) & (slop_LOO_c3_brms > min_LOO_brms)) ~ 0,
+   
+   #modpob == 3 (maximal)
+   modpob == 3 & ((max_LOO_c3_brms < slop_LOO_c3_brms) & (max_LOO_c3_brms < int_LOO_c3_brms) & (max_LOO_c3_brms < min_LOO_brms)) ~ 1,
+   modpob == 3 & ((max_LOO_c3_brms > slop_LOO_c3_brms) & (max_LOO_c3_brms > int_LOO_c3_brms) & (max_LOO_c3_brms > min_LOO_brms)) ~ 0,
+  ), 
+
+#uniform
+LOO_unif = case_when(
+      #modpob == 0 (minimal)
+    modpob == 0 & ((min_LOO_brms < int_LOO_uni_brms) & (min_LOO_brms < slop_LOO_uni_brms) & (min_LOO_brms < max_LOO_uni_brms)) ~ 1,
+    modpob == 0 & ((min_LOO_brms > int_LOO_uni_brms) & (min_LOO_brms > slop_LOO_uni_brms) & (min_LOO_brms > max_LOO_uni_brms)) ~ 0,
+    
+   #modpob == 1 (intersecciones)  
+    modpob == 1 & ((int_LOO_uni_brms < max_LOO_uni_brms) & (int_LOO_uni_brms < slop_LOO_uni_brms) & (int_LOO_uni_brms < min_LOO_brms)) ~ 1,
+   modpob == 1 & ((int_LOO_uni_brms > max_LOO_uni_brms) & (int_LOO_uni_brms > slop_LOO_uni_brms) & (int_LOO_uni_brms > min_LOO_brms)) ~ 0,
+   
+   #modpob == 2 (pendientes)
+   modpob == 2 & ((slop_LOO_uni_brms < max_LOO_uni_brms) & (slop_LOO_uni_brms <  int_LOO_uni_brms) & (slop_LOO_uni_brms < min_LOO_brms)) ~ 1,
+   modpob == 2 & ((slop_LOO_uni_brms > max_LOO_uni_brms) & (slop_LOO_uni_brms >  int_LOO_uni_brms) & (slop_LOO_uni_brms > min_LOO_brms)) ~ 0,
+   
+   #modpob == 3 (maximal)
+   modpob == 3 & ((max_LOO_uni_brms < slop_LOO_uni_brms) & (max_LOO_uni_brms < int_LOO_uni_brms) & (max_LOO_uni_brms < min_LOO_brms)) ~ 1,
+   modpob == 3 & ((max_LOO_uni_brms > slop_LOO_uni_brms) & (max_LOO_uni_brms > int_LOO_uni_brms) & (max_LOO_uni_brms > min_LOO_brms)) ~ 0,
+  ) 
+) |> select(LOO_bn1:LOO_unif) 
+
+```
