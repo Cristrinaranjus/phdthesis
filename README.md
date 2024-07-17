@@ -1,25 +1,8 @@
 
-# Repository `<repository-name>`
+# Repository `phdthesis`
 
-<repository-description>
+Repository for the development of my PhD thesis.
 
-# License
-
-This template is licensed under the [Creative Commons Attribution 4.0
-International license](https://creativecommons.org/licenses/by/4.0/).
-Please see the [license file](LICENSE.md).
-
-When using this template, please don’t forget to:
-
-- Adapt this license section to your own needs
-
-- License your own content, and remember that [open is
-  better](https://choosealicense.com/).
-
-- Link to the [original
-  license](https://creativecommons.org/licenses/by/4.0/) and give
-  appropriate credit; please do so by including the following in the
-  “License” section of the README.md file in your own project:
 
   > ## Attributions
   >
@@ -75,7 +58,7 @@ instructions](https://book.cds101.com/using-rstudio-server-to-clone-a-github-rep
 specified. The URL that must be entered into the `Repository URL` text
 box is:
 
-    <repository_url>
+    <https://github.com/Cristrinaranjus/phdthesis>
 
 **IMPORTANT:** It is totally unrecommended to clone a git repository
 inside a cloud storage folder (e.g., Dropbox, OneDrive). Please note
