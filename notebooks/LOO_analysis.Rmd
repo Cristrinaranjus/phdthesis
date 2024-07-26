@@ -1375,6 +1375,20 @@ res.aov_tdeI_ob3 <- anova_test(
 
 get_anova_table(res.aov_tdeI_ob3)
 
+performance::check_model(res.aov_tdeI_ob3)
+
 #modpob MR N modpob*MR modpob*N MR*N modpob*MR*N.
 ```
 
+```{r}
+prueba <- aov(value ~ Index + modpob + MR + N, data = data_obj3_filtered_tdeI_long)
+
+check_model(prueba)
+model_performance(prueba)
+```
+
+```{r}
+#TODO: Repasar todo el script
+#TODO: Revisar las gráficas
+#TODO: Analizar los resultados del anova, y ver si es posible utilizar la librería performance para tener unas visualizaciones chulas.
+#TODO: Revisar la simulación.
