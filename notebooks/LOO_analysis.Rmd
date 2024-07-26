@@ -1255,5 +1255,21 @@ data_obj3 <- data_obj3 |>
       MODELO_SELECCIONADO_C1_loo == 3 & (max_g10_li_c1_brms > 0 | max_g10_ls_c1_brms < 0) ~ 1,
       MODELO_SELECCIONADO_C1_loo == 3 & (max_g10_li_c1_brms <= 0 & max_g10_ls_c1_brms >= 0) ~ 0
     ),
+    
+    decision_AIC_cond = case_when(
+      MODELO_SELECCIONADO_AIC == 0 & min_g10_pval_lmer < 0.05 ~ 1,
+      MODELO_SELECCIONADO_AIC == 0 & min_g10_pval_lmer >= 0.05 ~ 0,
+      
+      MODELO_SELECCIONADO_AIC == 1 & int_g10_pval_lmer < 0.05 ~ 1,
+      MODELO_SELECCIONADO_AIC == 1 & int_g10_pval_lmer >= 0.05 ~ 0,
+      
+      MODELO_SELECCIONADO_AIC == 2 & slop_g10_pval_lmer < 0.05 ~ 1,
+      MODELO_SELECCIONADO_AIC == 2 & slop_g10_pval_lmer >= 0.05 ~ 0,
+      
+      MODELO_SELECCIONADO_AIC == 3 & max_g10_pval_lmer < 0.05 ~ 1,
+      MODELO_SELECCIONADO_AIC == 3 & max_g10_pval_lmer >= 0.05 ~ 0
+    ),
+    
+    
   )
 ```
