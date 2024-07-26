@@ -1240,5 +1240,20 @@ data_obj3 <- data_obj3 |>
       MODELO_SELECCIONADO_C1 == 3 & (max_g10_li_c1_brms > 0 | max_g10_ls_c1_brms < 0) ~ 1,
       MODELO_SELECCIONADO_C1 == 3 & (max_g10_li_c1_brms <= 0 & max_g10_ls_c1_brms >= 0) ~ 0
     ),
+    
+    
+    decision_LOO_cond = case_when(
+      MODELO_SELECCIONADO_C1_loo == 0 & (min_g10_li_brms > 0 | min_g10_ls_brms < 0) ~ 1, #correcto: se ha seleccionado el minimal y el efecto de la intervención no contiene el 0
+      MODELO_SELECCIONADO_C1_loo == 0 & (min_g10_li_brms <= 0 & min_g10_ls_brms >= 0) ~ 0, #incorrecto: se ha seleccionado el minimal y el efecto de la intervención contiene el 0
+      
+      MODELO_SELECCIONADO_C1_loo == 1 & (int_g10_li_c1_brms > 0 | int_g10_ls_c1_brms < 0) ~ 1,
+      MODELO_SELECCIONADO_C1_loo == 1 & (int_g10_li_c1_brms <= 0 & int_g10_ls_c1_brms >= 0) ~ 0,
+      
+      MODELO_SELECCIONADO_C1_loo == 2 & (slop_g10_li_c1_brms > 0 | slop_g10_ls_c1_brms < 0) ~ 1,
+      MODELO_SELECCIONADO_C1_loo == 2 & (slop_g10_li_c1_brms <= 0 & slop_g10_ls_c1_brms >= 0) ~ 0,
+      
+      MODELO_SELECCIONADO_C1_loo == 3 & (max_g10_li_c1_brms > 0 | max_g10_ls_c1_brms < 0) ~ 1,
+      MODELO_SELECCIONADO_C1_loo == 3 & (max_g10_li_c1_brms <= 0 & max_g10_ls_c1_brms >= 0) ~ 0
+    ),
   )
 ```
