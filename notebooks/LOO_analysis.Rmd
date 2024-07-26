@@ -1270,6 +1270,18 @@ data_obj3 <- data_obj3 |>
       MODELO_SELECCIONADO_AIC == 3 & max_g10_pval_lmer >= 0.05 ~ 0
     ),
     
-    
+    decision_BIC_cond = case_when(
+      MODELO_SELECCIONADO_BIC == 0 & min_g10_pval_lmer < 0.05 ~ 1,
+      MODELO_SELECCIONADO_BIC == 0 & min_g10_pval_lmer >= 0.05 ~ 0,
+      
+      MODELO_SELECCIONADO_BIC == 1 & int_g10_pval_lmer < 0.05 ~ 1,
+      MODELO_SELECCIONADO_BIC == 1 & int_g10_pval_lmer >= 0.05 ~ 0,
+      
+      MODELO_SELECCIONADO_BIC == 2 & slop_g10_pval_lmer < 0.05 ~ 1,
+      MODELO_SELECCIONADO_BIC == 2 & slop_g10_pval_lmer >= 0.05 ~ 0,
+      
+      MODELO_SELECCIONADO_BIC == 3 & max_g10_pval_lmer < 0.05 ~ 1,
+      MODELO_SELECCIONADO_BIC == 3 & max_g10_pval_lmer >= 0.05 ~ 0
+    )
   )
 ```
