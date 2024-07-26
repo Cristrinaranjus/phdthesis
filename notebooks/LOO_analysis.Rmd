@@ -1291,6 +1291,8 @@ data_obj3 <- data_obj3 |>
 data_obj3 |> summary()
 ```
 
+## Potencia condicionada a la selección del modelo
+
 Para analizar la potencia condicionada a la selección del modelo, tenemos que
 realizar un ANOVA de medidas repetidas sobre las decisiones condicionadas, todo
 ello con el filtro de "TE \> 0" (porque si no hay un efecto que detectar, la
@@ -1304,5 +1306,74 @@ data_obj3_filtered
 ```
 
 ```{r}
+data_obj3_filtered_long <- data_obj3_filtered |> 
+  gather (key = "Index", value = "value", decision_WAIC_cond, decision_LOO_cond, decision_AIC_cond, decision_BIC_cond) |> 
+  convert_as_factor(ID, Index)
 
+head(data_obj3_filtered_long)
+```
+
+```{r}
+data_obj3_filtered_long |> 
+  group_by(Index) |> 
+  get_summary_stats(value, type = "mean_sd")
+```
+
+```{r}
+res.aov_potencia_ob3 <- anova_test(
+  data = data_obj3_filtered_long,
+  dv = value,
+  wid = ID,
+  within = Index,
+  between = c(modpob, TE, MR, N),
+  type = 3,
+  effect.size = "pes"
+)
+
+get_anova_table(res.aov_potencia_ob3)
+
+
+#modpob TE MR N modpob*TE modpob*MR modpob*N TE*MR TE*N MR*N modpob*TE*MR modpob*TE*N 
+#modpob*MR*N TE*MR*N modpob*TE*MR*N
+```
+
+## Tasa de error tipo I condicionada a la selección del modelo
+
+Tenemos que filtrar por aquellos casos en los que no haya efecto:
+
+```{r}
+data_obj3_filtered_tdeI <- data_obj3 |> filter(TE == 0)
+
+data_obj3
+data_obj3_filtered_tdeI
+```
+
+```{r}
+data_obj3_filtered_tdeI_long <- data_obj3_filtered_tdeI |> 
+  gather (key = "Index", value = "value", decision_WAIC_cond, decision_LOO_cond, decision_AIC_cond, decision_BIC_cond) |> 
+  convert_as_factor(ID, Index)
+
+head(data_obj3_filtered_tdeI_long)
+```
+
+```{r}
+data_obj3_filtered_tdeI_long |> 
+  group_by(Index) |> 
+  get_summary_stats(value, type = "mean_sd")
+```
+
+```{r}
+res.aov_tdeI_ob3 <- anova_test(
+  data = data_obj3_filtered_tdeI_long,
+  dv = value,
+  wid = ID,
+  within = Index,
+  between = c(modpob, MR, N),
+  type = 3,
+  effect.size = "pes"
+)
+
+get_anova_table(res.aov_tdeI_ob3)
+
+#modpob MR N modpob*MR modpob*N MR*N modpob*MR*N.
 ```
