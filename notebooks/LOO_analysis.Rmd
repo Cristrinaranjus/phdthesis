@@ -1205,3 +1205,25 @@ get_anova_table(res.aov)
 # -- MR*index:  MR:Index  4.93 117212.5   88.849  2.84e-92     * 0.0040000
 # -- TE*Index: no significativa TE:Index  3.28 117212.5    2.217  7.80e-02       0.0000621
 ```
+
+# 3. Potencia y tasa de error tipo I condicionada a la selección del modelo
+
+Se trata de crear una variable por cada índice de ajuste (WAIC, LOO, AIC, BIC)
+que señale si la selección del moedelo ha sido la correcta (cuatro variables
+dicotómicas) teniendo en cuenta el modelo seleccionado por el índice y los
+valores criterio. Por ejemplo, para ver si el modelo minimal se ha seleccionado
+correctamente, tiene que coincidir que el modelo seleccionado sea el minimal y
+que al mismo tiempo, se cumpla que el efecto de la intervención para el modelo
+seleccionado (en este ejemplo, el minimal) no contenga el 0 - es decir, la
+ausencia de efecto.
+
+```{r}
+data_obj3 <- data |> left_join(selec_WAIC)
+data_obj3 <- data_obj3 |> left_join(selec_LOO)
+data_obj3 <- data_obj3 |> left_join(selec_AIC)
+data_obj3 <- data_obj3 |> left_join(selec_BIC)
+```
+
+```{r}
+
+```
