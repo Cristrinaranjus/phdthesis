@@ -1225,5 +1225,20 @@ data_obj3 <- data_obj3 |> left_join(selec_BIC)
 ```
 
 ```{r}
-
+data_obj3 <- data_obj3 |> 
+  mutate(
+    decision_WAIC_cond = case_when(
+      MODELO_SELECCIONADO_C1 == 0 & (min_g10_li_brms > 0 | min_g10_ls_brms < 0) ~ 1, #correcto: se ha seleccionado el minimal y el efecto de la intervención no contiene el 0
+      MODELO_SELECCIONADO_C1 == 0 & (min_g10_li_brms <= 0 & min_g10_ls_brms >= 0) ~ 0, #incorrecto: se ha seleccionado el minimal y el efecto de la intervención contiene el 0
+      
+      MODELO_SELECCIONADO_C1 == 1 & (int_g10_li_c1_brms > 0 | int_g10_ls_c1_brms < 0) ~ 1,
+      MODELO_SELECCIONADO_C1 == 1 & (int_g10_li_c1_brms <= 0 & int_g10_ls_c1_brms >= 0) ~ 0,
+      
+      MODELO_SELECCIONADO_C1 == 2 & (slop_g10_li_c1_brms > 0 | slop_g10_ls_c1_brms < 0) ~ 1,
+      MODELO_SELECCIONADO_C1 == 2 & (slop_g10_li_c1_brms <= 0 & slop_g10_ls_c1_brms >= 0) ~ 0,
+      
+      MODELO_SELECCIONADO_C1 == 3 & (max_g10_li_c1_brms > 0 | max_g10_ls_c1_brms < 0) ~ 1,
+      MODELO_SELECCIONADO_C1 == 3 & (max_g10_li_c1_brms <= 0 & max_g10_ls_c1_brms >= 0) ~ 0
+    ),
+  )
 ```
