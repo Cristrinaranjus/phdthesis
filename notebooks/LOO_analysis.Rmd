@@ -1228,60 +1228,81 @@ data_obj3 <- data_obj3 |> left_join(selec_BIC)
 data_obj3 <- data_obj3 |> 
   mutate(
     decision_WAIC_cond = case_when(
-      MODELO_SELECCIONADO_C1 == 0 & (min_g10_li_brms > 0 | min_g10_ls_brms < 0) ~ 1, #correcto: se ha seleccionado el minimal y el efecto de la intervención no contiene el 0
-      MODELO_SELECCIONADO_C1 == 0 & (min_g10_li_brms <= 0 & min_g10_ls_brms >= 0) ~ 0, #incorrecto: se ha seleccionado el minimal y el efecto de la intervención contiene el 0
+      MODELO_SELECCIONADO_C1 == "Minimal" & (min_g10_li_brms > 0 | min_g10_ls_brms < 0) ~ 1, #correcto: se ha seleccionado el minimal y el efecto de la intervención no contiene el 0
+      MODELO_SELECCIONADO_C1 == "Minimal" & (min_g10_li_brms <= 0 & min_g10_ls_brms >= 0) ~ 0, #incorrecto: se ha seleccionado el minimal y el efecto de la intervención contiene el 0
       
-      MODELO_SELECCIONADO_C1 == 1 & (int_g10_li_c1_brms > 0 | int_g10_ls_c1_brms < 0) ~ 1,
-      MODELO_SELECCIONADO_C1 == 1 & (int_g10_li_c1_brms <= 0 & int_g10_ls_c1_brms >= 0) ~ 0,
+      MODELO_SELECCIONADO_C1 == "Parcial - intersecciones" & (int_g10_li_c1_brms > 0 | int_g10_ls_c1_brms < 0) ~ 1,
+      MODELO_SELECCIONADO_C1 == "Parcial - intersecciones" & (int_g10_li_c1_brms <= 0 & int_g10_ls_c1_brms >= 0) ~ 0,
       
-      MODELO_SELECCIONADO_C1 == 2 & (slop_g10_li_c1_brms > 0 | slop_g10_ls_c1_brms < 0) ~ 1,
-      MODELO_SELECCIONADO_C1 == 2 & (slop_g10_li_c1_brms <= 0 & slop_g10_ls_c1_brms >= 0) ~ 0,
+      MODELO_SELECCIONADO_C1 == "Parcial - pendientes" & (slop_g10_li_c1_brms > 0 | slop_g10_ls_c1_brms < 0) ~ 1,
+      MODELO_SELECCIONADO_C1 == "Parcial - pendientes" & (slop_g10_li_c1_brms <= 0 & slop_g10_ls_c1_brms >= 0) ~ 0,
       
-      MODELO_SELECCIONADO_C1 == 3 & (max_g10_li_c1_brms > 0 | max_g10_ls_c1_brms < 0) ~ 1,
-      MODELO_SELECCIONADO_C1 == 3 & (max_g10_li_c1_brms <= 0 & max_g10_ls_c1_brms >= 0) ~ 0
+      MODELO_SELECCIONADO_C1 == "Maximal" & (max_g10_li_c1_brms > 0 | max_g10_ls_c1_brms < 0) ~ 1,
+      MODELO_SELECCIONADO_C1 == "Maximal" & (max_g10_li_c1_brms <= 0 & max_g10_ls_c1_brms >= 0) ~ 0
     ),
     
     
     decision_LOO_cond = case_when(
-      MODELO_SELECCIONADO_C1_loo == 0 & (min_g10_li_brms > 0 | min_g10_ls_brms < 0) ~ 1, #correcto: se ha seleccionado el minimal y el efecto de la intervención no contiene el 0
-      MODELO_SELECCIONADO_C1_loo == 0 & (min_g10_li_brms <= 0 & min_g10_ls_brms >= 0) ~ 0, #incorrecto: se ha seleccionado el minimal y el efecto de la intervención contiene el 0
+      MODELO_SELECCIONADO_C1_loo == "Minimal" & (min_g10_li_brms > 0 | min_g10_ls_brms < 0) ~ 1, #correcto: se ha seleccionado el minimal y el efecto de la intervención no contiene el 0
+      MODELO_SELECCIONADO_C1_loo == "Minimal" & (min_g10_li_brms <= 0 & min_g10_ls_brms >= 0) ~ 0, #incorrecto: se ha seleccionado el minimal y el efecto de la intervención contiene el 0
       
-      MODELO_SELECCIONADO_C1_loo == 1 & (int_g10_li_c1_brms > 0 | int_g10_ls_c1_brms < 0) ~ 1,
-      MODELO_SELECCIONADO_C1_loo == 1 & (int_g10_li_c1_brms <= 0 & int_g10_ls_c1_brms >= 0) ~ 0,
+      MODELO_SELECCIONADO_C1_loo == "Parcial - intersecciones" & (int_g10_li_c1_brms > 0 | int_g10_ls_c1_brms < 0) ~ 1,
+      MODELO_SELECCIONADO_C1_loo == "Parcial - intersecciones" & (int_g10_li_c1_brms <= 0 & int_g10_ls_c1_brms >= 0) ~ 0,
       
-      MODELO_SELECCIONADO_C1_loo == 2 & (slop_g10_li_c1_brms > 0 | slop_g10_ls_c1_brms < 0) ~ 1,
-      MODELO_SELECCIONADO_C1_loo == 2 & (slop_g10_li_c1_brms <= 0 & slop_g10_ls_c1_brms >= 0) ~ 0,
+      MODELO_SELECCIONADO_C1_loo == "Parcial - pendientes" & (slop_g10_li_c1_brms > 0 | slop_g10_ls_c1_brms < 0) ~ 1,
+      MODELO_SELECCIONADO_C1_loo == "Parcial - pendientes" & (slop_g10_li_c1_brms <= 0 & slop_g10_ls_c1_brms >= 0) ~ 0,
       
-      MODELO_SELECCIONADO_C1_loo == 3 & (max_g10_li_c1_brms > 0 | max_g10_ls_c1_brms < 0) ~ 1,
-      MODELO_SELECCIONADO_C1_loo == 3 & (max_g10_li_c1_brms <= 0 & max_g10_ls_c1_brms >= 0) ~ 0
+      MODELO_SELECCIONADO_C1_loo == "Maximal" & (max_g10_li_c1_brms > 0 | max_g10_ls_c1_brms < 0) ~ 1,
+      MODELO_SELECCIONADO_C1_loo == "Maximal" & (max_g10_li_c1_brms <= 0 & max_g10_ls_c1_brms >= 0) ~ 0
     ),
     
     decision_AIC_cond = case_when(
-      MODELO_SELECCIONADO_AIC == 0 & min_g10_pval_lmer < 0.05 ~ 1,
-      MODELO_SELECCIONADO_AIC == 0 & min_g10_pval_lmer >= 0.05 ~ 0,
+      MODELO_SELECCIONADO_AIC == "Minimal" & min_g10_pval_lmer < 0.05 ~ 1,
+      MODELO_SELECCIONADO_AIC == "Minimal" & min_g10_pval_lmer >= 0.05 ~ 0,
       
-      MODELO_SELECCIONADO_AIC == 1 & int_g10_pval_lmer < 0.05 ~ 1,
-      MODELO_SELECCIONADO_AIC == 1 & int_g10_pval_lmer >= 0.05 ~ 0,
+      MODELO_SELECCIONADO_AIC == "Parcial - intersecciones" & int_g10_pval_lmer < 0.05 ~ 1,
+      MODELO_SELECCIONADO_AIC == "Parcial - intersecciones" & int_g10_pval_lmer >= 0.05 ~ 0,
       
-      MODELO_SELECCIONADO_AIC == 2 & slop_g10_pval_lmer < 0.05 ~ 1,
-      MODELO_SELECCIONADO_AIC == 2 & slop_g10_pval_lmer >= 0.05 ~ 0,
+      MODELO_SELECCIONADO_AIC == "Parcial - pendientes" & slop_g10_pval_lmer < 0.05 ~ 1,
+      MODELO_SELECCIONADO_AIC == "Parcial - pendientes" & slop_g10_pval_lmer >= 0.05 ~ 0,
       
-      MODELO_SELECCIONADO_AIC == 3 & max_g10_pval_lmer < 0.05 ~ 1,
-      MODELO_SELECCIONADO_AIC == 3 & max_g10_pval_lmer >= 0.05 ~ 0
+      MODELO_SELECCIONADO_AIC == "Maximal" & max_g10_pval_lmer < 0.05 ~ 1,
+      MODELO_SELECCIONADO_AIC == "Maximal" & max_g10_pval_lmer >= 0.05 ~ 0
     ),
     
     decision_BIC_cond = case_when(
-      MODELO_SELECCIONADO_BIC == 0 & min_g10_pval_lmer < 0.05 ~ 1,
-      MODELO_SELECCIONADO_BIC == 0 & min_g10_pval_lmer >= 0.05 ~ 0,
+      MODELO_SELECCIONADO_BIC == "Minimal" & min_g10_pval_lmer < 0.05 ~ 1,
+      MODELO_SELECCIONADO_BIC == "Minimal" & min_g10_pval_lmer >= 0.05 ~ 0,
       
-      MODELO_SELECCIONADO_BIC == 1 & int_g10_pval_lmer < 0.05 ~ 1,
-      MODELO_SELECCIONADO_BIC == 1 & int_g10_pval_lmer >= 0.05 ~ 0,
+      MODELO_SELECCIONADO_BIC == "Parcial - intersecciones" & int_g10_pval_lmer < 0.05 ~ 1,
+      MODELO_SELECCIONADO_BIC == "Parcial - intersecciones" & int_g10_pval_lmer >= 0.05 ~ 0,
       
-      MODELO_SELECCIONADO_BIC == 2 & slop_g10_pval_lmer < 0.05 ~ 1,
-      MODELO_SELECCIONADO_BIC == 2 & slop_g10_pval_lmer >= 0.05 ~ 0,
+      MODELO_SELECCIONADO_BIC == "Parcial - pendientes" & slop_g10_pval_lmer < 0.05 ~ 1,
+      MODELO_SELECCIONADO_BIC == "Parcial - pendientes" & slop_g10_pval_lmer >= 0.05 ~ 0,
       
-      MODELO_SELECCIONADO_BIC == 3 & max_g10_pval_lmer < 0.05 ~ 1,
-      MODELO_SELECCIONADO_BIC == 3 & max_g10_pval_lmer >= 0.05 ~ 0
+      MODELO_SELECCIONADO_BIC == "Maximal" & max_g10_pval_lmer < 0.05 ~ 1,
+      MODELO_SELECCIONADO_BIC == "Maximal" & max_g10_pval_lmer >= 0.05 ~ 0
     )
-  )
+  ) |> select(ID, modpob, TE, MR, N, decision_WAIC_cond, decision_LOO_cond, decision_AIC_cond, decision_BIC_cond)
+
+```
+
+```{r}
+data_obj3 |> summary()
+```
+
+Para analizar la potencia condicionada a la selección del modelo, tenemos que
+realizar un ANOVA de medidas repetidas sobre las decisiones condicionadas, todo
+ello con el filtro de "TE \> 0" (porque si no hay un efecto que detectar, la
+potencia pierde un poco el sentido teórico).
+
+```{r}
+data_obj3_filtered <- data_obj3 |> filter(TE > 0)
+
+data_obj3
+data_obj3_filtered
+```
+
+```{r}
+
 ```
