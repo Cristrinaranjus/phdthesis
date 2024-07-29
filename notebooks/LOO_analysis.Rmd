@@ -1178,6 +1178,8 @@ ggplot(errors, aes(x = index, y = percent, fill = MODELO_SELECCIONADO)) +
   scale_fill_manual(values = wes_palette("Darjeeling1")[4:1]) +
   ylim(0, 100) +
   theme_minimal()
+
+#TODO: ¿Hay alguna manera de ver la comparación de errores - es decir, es más común que seleccione el maximal el WAIC frente a una de las opciones correctas?)
 ```
 
 ## ¿Hay diferencias en la selección del modelo correcto en función de las condiciones simuladas?
