@@ -1124,6 +1124,62 @@ error_BIC |>
   theme_minimal()
 ```
 
+## Visualización conjunta
+
+```{r}
+error_AIC <- error_AIC |> 
+  rename(
+    MODELO_SELECCIONADO = MODELO_SELECCIONADO_AIC
+  )
+
+error_BIC <- error_BIC |> 
+  rename(
+    MODELO_SELECCIONADO = MODELO_SELECCIONADO_BIC
+  )
+
+error_WAIC <- error_WAIC |> 
+  rename(
+    MODELO_SELECCIONADO = MODELO_SELECCIONADO_C1
+  )
+
+error_LOO <- error_LOO |> 
+  rename(
+    MODELO_SELECCIONADO = MODELO_SELECCIONADO_C1_loo
+  )
+
+error_AIC$index <- "AIC"
+error_BIC$index <- "BIC"
+error_WAIC$index <- "WAIC"
+error_LOO$index <- "LOO"
+
+
+errors <- bind_rows(error_AIC, error_BIC, error_WAIC, error_LOO)
+
+ggplot(errors, aes(x = MODELO_SELECCIONADO, y = percent, fill = index)) +
+  geom_bar(stat = "identity", position = "dodge") +
+   geom_text(aes(label = sprintf("%.1f%%", percent)),
+            position = position_dodge(width = 0.9), vjust = -0.5, size = 3) +
+  labs(title = "Distribución de errores en la selección del modelo por los diferentes índices utilizados",
+       x = "Modelo seleccionado",
+       y = "Porcentaje") +
+  scale_fill_manual(values = wes_palette("Darjeeling1")[4:1]) +
+  ylim(0, 100) +
+  theme_minimal()
+
+
+ggplot(errors, aes(x = index, y = percent, fill = MODELO_SELECCIONADO)) +
+  geom_bar(stat = "identity", position = "dodge") +
+   geom_text(aes(label = sprintf("%.1f%%", percent)),
+            position = position_dodge(width = 0.9), vjust = -0.5, size = 3) +
+  labs(title = "Distribución de errores en la selección del modelo por los diferentes índices utilizados",
+       x = "Índice de ajuste relativo",
+       y = "Porcentaje",
+       fill = "Modelo seleccionado \n(equívocamente)") +
+  scale_fill_manual(values = wes_palette("Darjeeling1")[4:1]) +
+  ylim(0, 100) +
+  theme_minimal()
+```
+
 ## ¿Hay diferencias en la selección del modelo correcto en función de las condiciones simuladas?
 
 ### Pre-procesamiento
@@ -1389,7 +1445,6 @@ model_performance(prueba)
 
 ```{r}
 #TODO: Repasar todo el script
-#TODO: Revisar las gráficas
 #TODO: Analizar los resultados del anova, y ver si es posible utilizar la librería performance para tener unas visualizaciones chulas.
 #TODO: Revisar la simulación.
 ```
