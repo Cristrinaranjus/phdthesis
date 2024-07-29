@@ -1392,3 +1392,4 @@ model_performance(prueba)
 #TODO: Revisar las gráficas
 #TODO: Analizar los resultados del anova, y ver si es posible utilizar la librería performance para tener unas visualizaciones chulas.
 #TODO: Revisar la simulación.
+```
