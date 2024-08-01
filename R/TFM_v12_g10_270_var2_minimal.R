@@ -32,7 +32,7 @@ library(tictoc) #to measure simulation time
 ####################################################################
 
 #setwd("/lustre/home/nucifera/CCC/")
-setwd("C:/Users/Crist/OneDrive - Universidad Autonoma de Madrid/6. M?STER METODOLOG?A/TFM/C?digo R/CCC/MINIMAL/Minimal TE - 270")
+setwd("C:/Users/Cris/Documents/Workspace/phdthesis/R")
 
 
 # -------------------------------- & ---------------------------------- #
