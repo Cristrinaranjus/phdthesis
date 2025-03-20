@@ -10,6 +10,8 @@ library(readr)
 library(tidyverse)
 library(rstatix)
 library(ggpubr)
+library(afex)
+library(emmeans)
 
 options(scipen = 99)
 ```
@@ -144,7 +146,7 @@ efecto de la intervención y se codificaba como 0.
 
 En el caso del marco bayesiano, siete variables fueron creadas -una por cada
 distribución previa utilizada- atendiendo a los cuantiles al 95% de los
-intervalos de credibilidad del par´metro de la intervención del efecto. Si estos
+intervalos de credibilidad del parámetro de la intervención del efecto. Si estos
 cuantiles no encerraban el valor 0, se consideraba que el efecto estaba
 presente; en caso contrario, la interpretación era de ausencia de evidencia del
 efecto de la intervención (0).
@@ -289,8 +291,8 @@ lación ha sido problemática:
 -   Número de sujetos: 3 (N == 1)
 
 En este escenario, de las 499 datos simulados que podríamos tener, sólo se
-analizan 175 y se pierden 325. Hay que volver a ejecutar esta condición de
-simulación.
+analizan 175 y se pierden 325.
+<!-- TODO: ¿Habría que hacer de nuevo la simulación? -->
 
 # Selección del modelo correcto
 
@@ -659,7 +661,8 @@ write_csv(df, "dat/df_final.csv")
 ### 1.1. Análisis de la potencia
 
 ```{r}
-df_potencia <- df |> filter(TE > 0 & modpob > 0) |> select(ID:N)
+df_potencia <- df |> filter(TE > 0 & modpob > 0) |> 
+                              select(ID:N)
 # ¿Excluimos el minimal por no tener efectos aleatorios?
 ```
 
@@ -672,7 +675,7 @@ sea cada una de los métodos de estimación obtenidos.
 ```{r}
 df_potencia_long <- df_potencia |> 
   gather(key = "method", value = "value", dec_bunif, dec_bcauchy1, dec_bcauchy2, dec_bcauchy3, dec_bnormal1, dec_bnormal2, dec_bnormal3) |> 
-  convert_as_factor(ID, method)
+  convert_as_factor(ID, method, TE, MR, N, modpob)
 ```
 
 ### Análisis estadístico
@@ -692,6 +695,26 @@ df_potencia_long |>
 ```
 
 ```{r}
+model <- aov_car(
+  value ~ modpob * TE * MR * N + Error(ID/method), #error para medidas repetidas
+  data = df_potencia_long,
+  factorize = FALSE,
+  anova_table = list(es = "pes")
+)
+
+summary(model)
+```
+
+```{r}
+ggplot(df_potencia_long, aes(x = method, y = value, group = interaction(modpob, TE), colour = modpob)) +
+  stat_summary(fun = mean, geom = "line") +
+  stat_summary(fun = mean, geom = "point") +
+  theme_minimal() +
+  labs(title = "Gráfico de perfiles", x = "Método", y = "Valor medio")
+```
+
+```{r}
+#otra forma de hacer el ANOVA
 res.aov <- anova_test(
   data = df_potencia_long,
   dv = value,
@@ -725,7 +748,7 @@ df_tdeI_bayes
 ```{r}
 df_tdeI_bayes_long <- df_tdeI_bayes |> 
   gather(key = "method", value = "value", dec_bunif, dec_bcauchy1, dec_bcauchy2, dec_bcauchy3, dec_bnormal1, dec_bnormal2, dec_bnormal3) |> 
-  convert_as_factor(ID, method)
+  convert_as_factor(ID, method, TE, MR, N, modpob)
 ```
 
 ### Análisis estadístico
@@ -744,6 +767,17 @@ df_tdeI_bayes_long |>
   identify_outliers(value)
 
 #Hay 4130 outliers
+```
+
+```{r}
+model_tdI <- aov_car(
+  value ~ modpob * MR * N + Error(ID/method), #error para medidas repetidas
+  data = df_tdeI_bayes_long,
+  factorize = FALSE,
+  anova_table = list(es = "pes")
+)
+
+summary(model_tdI)
 ```
 
 ```{r}
@@ -782,7 +816,7 @@ df_seleccion_WAIC
 ```{r}
 df_seleccion_WAIC_long <- df_seleccion_WAIC |> 
   gather(key = "method", value = "value", sel_bnormal1, sel_bnormal2, sel_bnormal3, sel_bcauchy1, sel_bcauchy2, sel_bcauchy3, sel_bunif) |> 
-  convert_as_factor(ID, method)
+  convert_as_factor(ID, method, modpob, TE, MR, N)
 
 df_seleccion_WAIC_long
 ```
@@ -797,7 +831,7 @@ df_seleccion_LOO
 ```{r}
 df_seleccion_LOO_long <- df_seleccion_LOO |> 
   gather(key = "method", value = "value", LOO_bn1, LOO_bn2, LOO_bn3, LOO_bc1, LOO_bc2, LOO_bc3, LOO_unif) |> 
-  convert_as_factor(ID, method)
+  convert_as_factor(ID, method, modpob, TE, MR, N)
 
 df_seleccion_LOO_long
 ```
@@ -820,6 +854,17 @@ df_seleccion_WAIC_long |>
   identify_outliers(value)
 
 #Hay 91824 outliers
+```
+
+```{r}
+model_SELwaic <- aov_car(
+  value ~ modpob * MR * N + Error(ID/method), #error para medidas repetidas
+  data = df_seleccion_WAIC_long,
+  factorize = FALSE,
+  anova_table = list(es = "pes")
+)
+
+summary(model_SELwaic)
 ```
 
 ```{r}
@@ -1180,6 +1225,79 @@ ggplot(errors, aes(x = index, y = percent, fill = MODELO_SELECCIONADO)) +
   theme_minimal()
 
 #TODO: ¿Hay alguna manera de ver la comparación de errores - es decir, es más común que seleccione el maximal el WAIC frente a una de las opciones correctas?)
+#
+
+ggsave(
+  filename = "plot_errores.svg",
+  plot = last_plot(),
+  device = "svg",
+  width = 8,
+  height = 6,
+  units = "in"
+)
+
+```
+
+```{r}
+#Frecuencias absolutas
+error_AIC <- error_AIC |> 
+  rename(MODELO_SELECCIONADO = MODELO_SELECCIONADO_AIC)
+
+error_BIC <- error_BIC |> 
+  rename(MODELO_SELECCIONADO = MODELO_SELECCIONADO_BIC)
+
+error_WAIC <- error_WAIC |> 
+  rename(MODELO_SELECCIONADO = MODELO_SELECCIONADO_C1)
+
+error_LOO <- error_LOO |> 
+  rename(MODELO_SELECCIONADO = MODELO_SELECCIONADO_C1_loo)
+
+# Añadir una columna 'index' para cada índice de ajuste relativo
+error_AIC$index <- "AIC"
+error_BIC$index <- "BIC"
+error_WAIC$index <- "WAIC"
+error_LOO$index <- "LOO"
+
+# Unir todos los dataframes en uno solo
+errors <- bind_rows(error_AIC, error_BIC, error_WAIC, error_LOO)
+
+# Calcular la frecuencia absoluta para cada combinación de 'MODELO_SELECCIONADO' e 'index'
+errors_count <- errors %>%
+  group_by(MODELO_SELECCIONADO, index) %>%
+  summarise(frequency = n(), .groups = "drop")
+
+# Gráfico de barras con frecuencia absoluta (por 'MODELO_SELECCIONADO')
+ggplot(errors_count, aes(x = MODELO_SELECCIONADO, y = frequency, fill = index)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_text(aes(label = sprintf("%d", frequency)),
+            position = position_dodge(width = 0.9), vjust = -0.5, size = 3) +
+  labs(title = "Distribución de errores en la selección del modelo por los diferentes índices utilizados",
+       x = "Modelo seleccionado",
+       y = "Frecuencia absoluta") +
+  scale_fill_manual(values = wes_palette("Darjeeling1")[4:1]) +
+  theme_minimal()
+
+# Gráfico de barras con frecuencia absoluta (por 'index')
+ggplot(errors_count, aes(x = index, y = frequency, fill = MODELO_SELECCIONADO)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_text(aes(label = sprintf("%d", frequency)),
+            position = position_dodge(width = 0.9), vjust = -0.5, size = 3) +
+  labs(title = "Distribución de errores en la selección del modelo por los diferentes índices utilizados",
+       x = "Índice de ajuste relativo",
+       y = "Frecuencia absoluta",
+       fill = "Modelo seleccionado \n(equívocamente)") +
+  scale_fill_manual(values = wes_palette("Darjeeling1")[4:1]) +
+  theme_minimal()
+
+# Guardar el gráfico como archivo .svg
+ggsave(
+  filename = "plot_errores.svg",
+  plot = last_plot(),
+  device = "svg",
+  width = 8,
+  height = 6,
+  units = "in"
+)
 ```
 
 ## ¿Hay diferencias en la selección del modelo correcto en función de las condiciones simuladas?
@@ -1193,7 +1311,7 @@ sea cada una de los métodos de estimación obtenidos.
 ```{r}
 df_seleccion_long <- df |> select(sel_lmerAIC, sel_lmerBIC, sel_bcauchy1, LOO_bc1, ID, modpob, TE, MR, N) |> 
   gather(key = "Index", value = "value", sel_lmerAIC, sel_lmerBIC, sel_bcauchy1, LOO_bc1) |> 
-  convert_as_factor(ID, Index)
+  convert_as_factor(ID, Index,modpob)
 ```
 
 ### Análisis estadístico
@@ -1262,6 +1380,72 @@ get_anova_table(res.aov)
 # -- n*index: N:Index  3.28 117212.5  213.470 8.10e-151     * 0.0060000
 # -- MR*index:  MR:Index  4.93 117212.5   88.849  2.84e-92     * 0.0040000
 # -- TE*Index: no significativa TE:Index  3.28 117212.5    2.217  7.80e-02       0.0000621
+```
+
+```{r}
+#Otra opción
+
+
+df_seleccion_long <- as_tibble(df_seleccion_long)
+
+aov_results_obj2 <- aov_ez(
+  id = "ID",
+  dv = "value", # combinación de sel_lmerAIC, sel_lmerBIC, sel_bcauchy1, LOO_bc1
+  data = df_seleccion_long, # datos en formato long,
+  within = "Index", # Factor intra: BIC, AIC, WAIC, LOO
+  between = c("modpob", "TE", "MR", "N"), # Factores intra
+  type = 3
+)
+
+summary(aov_results_obj2)
+
+effectsize::eta_squared(aov_results_obj2)
+
+#afex_plot(aov_results_obj2, x = "modpob", trace = "Index")
+
+
+# Estimated Marginal Means (EMMs) for interactions
+emmeans_results_modpob <- emmeans(aov_results_obj2, ~ modpob * Index)
+emmeans_results_N <- emmeans(aov_results_obj2, ~ N * Index)
+emmeans_results_MR <- emmeans(aov_results_obj2, ~ MR * Index)
+
+# Display EMM results
+summary(emmeans_results_modpob)
+summary(emmeans_results_N)
+summary(emmeans_results_MR)
+
+#Visualization
+
+emmeans_results_modpob_df <- as_tibble(emmeans_results_modpob)
+
+ggplot(
+  data = emmeans_results_modpob_df,
+  aes(x = modpob, y = emmean, group = Index, color = Index)) +
+  geom_line(size = 1) + #Add lines for each Index
+  geom_point(size = 3) + # Add points at each Mean
+  labs(
+    title = "Proporción de aciertos de cada índice de ajuste relativo según el modelo poblacional",
+    x = "Modelo poblacional",
+    y = "Medias marginales estimadas",
+    color = "Índice de ajuste relativo"
+  ) +
+  ylim(0.00, 1.00) +
+  scale_color_manual(
+    values = wes_palette("Darjeeling1")[c(1, 2, 4, 5)],
+    labels = c("LOO", "WAIC", "AIC", "BIC")) + # Custom colors
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 12, face = "bold"),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 10),
+    legend.title = element_text(size = 8),
+    legend.text = element_text(size = 8),
+    #panel.grid.major.x = element_line(color = 'grey80', size = 0.1),  # Remove vertical gridlines
+    #panel.grid.major.y = element_line(color = "grey80", size = 0.5)
+  )
+
+ggsave("plot_obj2.svg", plot = last_plot(), device = "svg", width = 8, height = 6)
+
 ```
 
 # 3. Potencia y tasa de error tipo I condicionada a la selección del modelo
@@ -1378,6 +1562,56 @@ data_obj3_filtered_long |>
 ```
 
 ```{r}
+# ’modelo
+# poblacional x tamaño del efecto x método de estimación’.
+
+data_obj3_filtered_long |> 
+  group_by(Index, modpob, TE) |> 
+  get_summary_stats(value, type = "mean_sd")
+```
+
+```{r}
+#Visualización gráfica de la triple interacción
+# Datos agrupados por la interacción y con medias y desviaciones típicas
+summary_data <- data_obj3_filtered_long %>%
+  group_by(Index, modpob, TE) %>%
+  summarise(mean_value = mean(value, na.rm = TRUE),
+            sd_value = sd(value, na.rm = TRUE),
+            .groups = "drop")
+
+# Graficar la interacción para cada índice por separado
+ggplot(summary_data, aes(x = factor(modpob, levels = c(0, 1, 2, 3)), y = mean_value, color = factor(TE))) +
+  geom_line(aes(group = TE), size = 1) +
+  geom_point(size = 3) +
+  facet_wrap(~Index, ncol = 1, labeller = labeller(Index = c(
+    "decision_BIC_cond" = "BIC (Frequentist)",
+    "decision_AIC_cond" = "AIC (Frequentist)",
+    "decision_WAIC_cond" = "WAIC (Bayesian)",
+    "decision_LOO_cond" = "LOO (Bayesian)"
+  ))) +
+  labs(
+    title = "Effects of Triple Interaction: Population Model, Effect Size, and Relative Fit Index on Conditioned Power",
+    x = "Population Model",
+    y = "Estimated Marginal Means",
+    color = "Effect Size (ES)"
+  ) +
+  scale_color_manual(values = wes_palette("Darjeeling1")[c(1, 2)], labels = c("1.15", "2.70")) +
+  scale_x_discrete(labels = c("Minimal", "Partial intercepts", "Partial Slopes", "Maximal")) +
+  theme_minimal() +
+  theme(
+    strip.text = element_text(size = 10, face = "bold"),
+    plot.title = element_text(hjust = 0.5, size = 10, face = "bold"),
+    axis.text = element_text(size = 8),
+    axis.title = element_text(size = 10),
+    legend.title = element_text(size = 10),
+    legend.text = element_text(size = 8)
+  )
+
+ggsave("triple_interaction_plot_customized.svg", width = 8, height = 10, device = "svg")
+
+```
+
+```{r}
 res.aov_potencia_ob3 <- anova_test(
   data = data_obj3_filtered_long,
   dv = value,
@@ -1393,6 +1627,23 @@ get_anova_table(res.aov_potencia_ob3)
 
 #modpob TE MR N modpob*TE modpob*MR modpob*N TE*MR TE*N MR*N modpob*TE*MR modpob*TE*N 
 #modpob*MR*N TE*MR*N modpob*TE*MR*N
+```
+
+```{r}
+#otra opción
+#decision_WAIC_cond, decision_LOO_cond, decision_AIC_cond, decision_BIC_cond
+aov_power_3 <- aov_ez(
+  id = "ID",                  # Unique subject identifier
+  dv = "value",               # Dependent variable
+  data = data_obj3_filtered_long,                # Data frame
+  within = "Index",          # Within-subjects factor
+  between = c("modpob", "TE", "MR", "N"),  # Between-subjects factors
+  type = 3,                   # Type III sum of squares
+  detailed = TRUE             # Get detailed output
+)
+
+aov_power_3
+effectsize::eta_squared(aov_power_3)
 ```
 
 ## Tasa de error tipo I condicionada a la selección del modelo
@@ -1421,6 +1672,12 @@ data_obj3_filtered_tdeI_long |>
 ```
 
 ```{r}
+data_obj3_filtered_tdeI_long |> 
+  group_by(Index, modpob) |> 
+  get_summary_stats(value, type = "mean_sd")
+```
+
+```{r}
 res.aov_tdeI_ob3 <- anova_test(
   data = data_obj3_filtered_tdeI_long,
   dv = value,
@@ -1436,6 +1693,58 @@ get_anova_table(res.aov_tdeI_ob3)
 performance::check_model(res.aov_tdeI_ob3)
 
 #modpob MR N modpob*MR modpob*N MR*N modpob*MR*N.
+```
+
+```{r}
+#otra opción
+#decision_WAIC_cond, decision_LOO_cond, decision_AIC_cond, decision_BIC_cond
+aov_tdI_3 <- aov_ez(
+  id = "ID",                  # Unique subject identifier
+  dv = "value",               # Dependent variable
+  data = data_obj3_filtered_tdeI_long,                # Data frame
+  within = "Index",          # Within-subjects factor
+  between = c("modpob", "MR", "N"),  # Between-subjects factors; delete TE as it only has one level (TE == 0)
+  type = 3,                   # type III sum of squares
+  detailed = TRUE             # detailed output
+)
+
+aov_tdI_3
+
+effectsize::eta_squared(aov_tdI_3)
+
+emmeans_tdI_3 <- emmeans(aov_tdI_3, ~ modpob * Index)
+emmeans_tdI_3_df <- as_tibble(emmeans_tdI_3)
+
+ggplot(emmeans_tdI_3_df, aes(x = modpob, y = emmean, group = Index, color = Index)) +
+  geom_line(size = 1) + 
+  geom_point(size = 3) +
+  labs(
+    title = "Tasa de error tipo I condicionada a la selección del modelo según el modelo poblacional",
+    x = "Modelo poblacional",
+    y = "Medias marginales estimadas",
+    color = "Índice de ajuste relativo"
+  ) +
+  scale_x_discrete(labels = c("Minimal", "Partial - Intercepts", "Parcial - Slopes", "Maximal")) +
+  scale_color_manual(
+    values = wes_palette("Darjeeling1")[c(3, 4, 1, 2)], # Colores personalizados
+    labels = c("BIC", "AIC", "WAIC", "LOO") # Etiquetas personalizadas
+  ) +
+   scale_y_continuous(
+    limits = c(0, 0.2), # Ajustar límites del eje Y
+    breaks = seq(0, 0.2, by = 0.05), # Personalizar los ticks del eje Y
+    labels = scales::label_number(accuracy = 0.01) # Formato de etiquetas (2 decimales)
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 10, face = "bold"),
+    axis.text = element_text(size = 8),
+    axis.title = element_text(size = 10),
+    legend.title = element_text(size = 10),
+    legend.text = element_text(size = 8),
+    panel.grid.major.x = element_blank() # Quitar gridlines verticales
+  )
+
+ggsave("error_tipo_I_condicionado.svg", device = "svg", width = 8, height = 6)
 ```
 
 ```{r}
