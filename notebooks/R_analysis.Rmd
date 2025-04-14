@@ -1746,16 +1746,3 @@ ggplot(emmeans_tdI_3_df, aes(x = modpob, y = emmean, group = Index, color = Inde
 
 ggsave("error_tipo_I_condicionado.svg", device = "svg", width = 8, height = 6)
 ```
-
-```{r}
-prueba <- aov(value ~ Index + modpob + MR + N, data = data_obj3_filtered_tdeI_long)
-
-check_model(prueba)
-model_performance(prueba)
-```
-
-```{r}
-#TODO: Repasar todo el script
-#TODO: Analizar los resultados del anova, y ver si es posible utilizar la librería performance para tener unas visualizaciones chulas.
-#TODO: Revisar la simulación.
-```
