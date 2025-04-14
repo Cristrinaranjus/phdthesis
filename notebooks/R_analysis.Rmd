@@ -1,0 +1,1748 @@
+---
+title: "Análisis de datos del proyecto `Análisis bayesiano v. frecuentista en diseños de caso único desde los modelos multinivel: cuestiones sobre la potencia y la tasa de error tipo I"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r libraries}
+library(readr)
+library(tidyverse)
+library(rstatix)
+library(ggpubr)
+library(afex)
+library(emmeans)
+
+options(scipen = 99)
+```
+
+```{r import data}
+data <- read_csv("dat/df_total_datos.csv")
+
+data <- data |> mutate(
+  ID = row_number()
+) |> select(ID, everything(), -`...1`)
+
+```
+
+# Introducción
+
+El objetivo general de este trabajo es comparar los marcos estadísticos
+bayesiano y frecuentista en el contexto del uso de los modelos multinivel para
+datos de diseños de caso único mediante un estudio de simulación.
+Específicamente nos interesa un caso particular - cuando la estimación de los
+parámetros de covarianza es un requisito para modelar la realidad de los datos.
+
+Dentro de este objetivo general, destacamos tres objetivos específicos:
+
+1.  En el marco bayesiano, establecer un **análisis de sensibilidad** para
+    distintas distribuciones previas con diferentes grados de información en
+    términos de potencia y tasa de error tipo I sobre elefecto de la
+    intervención, así como la selección correcta del modelo. Los valores están
+    inspirados como réplica conceptual en los utilizados por Moeyaert et al.
+
+    (2017) y Baek et al. (2020). Los distintos grados de información de las
+           distribuciones favorecen varianzas de distinta magnitud.
+
+2.  Evaluar el **rendimiento de la selección del modelo correcto**. Se estudiará
+    la proporción de veces que el modelo correcto se escoge con cuatro índices
+    de ajuste relativo: AIC y BIC por parte de los métodos frecuentistas, y WAIC
+    y LOO por parte de la perspectiva bayesiana. Se podría esperar que la
+    selección del modelo desde el marco bayesiano sea más estable entre las
+    diferentes condiciones.
+
+3.  Explorar la **potencia y la tasa de error tipo I CONDICIONADA a la
+    selección** **del modelo**. Se estudiará el rendimiento de la toma de
+    decisiones sobre el efecto fijo de la intervención en función del modelo
+    seleccionado a partir de los criterios de los índices de ajuste relativo, de
+    forma que se asemeje a la realidad de los investigadores aplicados:
+    desconocen cuál es el modelo poblacional que generen los datos y tienen que
+    tomar decisiones a partir de distintos índices de ajuste.
+
+En definitiva, lo que se busca es (1) analizar qué método de estimación presenta
+mejor rendimiento; (2) analizar la proporción de veces en la que el modelo
+correcto se seleciona adecuadamente, con el fin de responder a la necesidad de
+tomar una decisión sobre la elección del modelo como paso previo a interpretar
+sus parámetros y (3) valorar la potencia y la tasa de error tipo I según el
+modelo seleccionado por estos índices, lo que imitaría a la práctica real donde
+el modelo poblacional verdadero es desconocido.
+
+## Índices de ajuste utilizados
+
+### LOO
+
+LOO (Leave-one-out) es un índice de ajuste relativo para evaluar y comparar
+modelos estadísticos. Se basa en el concepto de validación cruzada de dejar uno
+fuera (Leave-One-Out Cross-Validation).
+
+La **validación cruzada** es un método para evaluar el rendimiento de un modelo
+predictivo, que consiste en:
+
+1.  Entrenar un modelo con todos los datos excepto uno.
+2.  Evaluar el modelo con el dato que queda fuera.
+3.  Repetición del proceso para cada dato del conjunto de datos (en nuestro
+    caso, cada modelo simulado?)
+4.  Se promedia el error de predicción obtenido en cada iteración.
+
+En nuestro estudio de simulación se calculó utilizando la función loo.brmsfit()
+-teniendo como alias la función LOO()- del paquete `brms`.
+
+Una vez calculado, los valores del LOO se pueden utilizar como criterio en la
+comparación de modelos, de forma que tiene un funcionamiento similar al AIC
+(Akaike Information Criterion) o el BIC (Bayesian Information Criteiron), pero
+adaptado al enfoque bayesiano. De esta forma, permite comparar diferentes
+modelos bayesianos basándose en su capacidad de predecir datos nuevos y favorece
+a modelos con mejor ajuste y menor complejidad.
+
+Como ventajas, podemos destacar la eficiencia (al evitar la necesidad de re-
+entrenar el modelo múltiples veces), la adaptabilidad (se adapta a modelos
+complejos y de alta dimensionalidad) y robustez (reduce el riesgo de sobreajste
+al evaluar modelos utilizando datos no vistos). **El LOO bayesiano es
+especialmente** **útil para modelos bayesianos complejos que pueden ser
+difíciles de evaluar con** **métodos tradicionales**. Un menor valor de LOO
+indica mejor capacidad predictiva.
+
+Para analizar la selección del modelo correcto a través de LOO, tenemos que
+seguir varios pasos:
+
+1)  Aislar las variables que contienen los valores "LOO" para cada modelo
+    estimado.
+2)  Aislar las variables "factor" de la simulación, especialmente "modpob".
+3)  Crear una variable de selección del modelo correcto para cada uno de los
+    modelos bayesianos
+
+# Pre-procesamiento
+
+## Subsetting de variables
+
+```{r}
+data |> select(contains("loo")) |> colnames()
+data_LOO <- data |> select(ID, contains("loo"), modpob, TE, MR, N) 
+```
+
+```{r}
+data_WAIC <- data |> select(ID, contains("waic"), modpob, TE, MR, N)
+```
+
+```{r}
+data_BIC <- data |> select(ID, contains("BIC"), modpob, TE, MR, N)
+```
+
+```{r}
+data_AIC <- data |> select(ID, ends_with("AIC"), modpob, TE, MR, N)
+```
+
+# Decisión sobre la presencia del efecto de la intervención
+
+Se crean ocho variables para registrar la decisión tomada sobre el efecto de la
+intervención. Para ambos métodos de estimación se codificó la presencia del
+efecto con el valor 1 y con el valor 0 la ausencia del mismo.
+
+Para la toma de decisiones dentro del marco frecuentista se valoró el nivel
+crítico aportado por la función `lmer()` utilizando como nivel de referencia un
+nivel de significación de 0.05. Si se encontraba que el valor *p* era menor que
+0.05, se codificaba como '1'; en caso contrario, no existía evidencia de un
+efecto de la intervención y se codificaba como 0.
+
+En el caso del marco bayesiano, siete variables fueron creadas -una por cada
+distribución previa utilizada- atendiendo a los cuantiles al 95% de los
+intervalos de credibilidad del parámetro de la intervención del efecto. Si estos
+cuantiles no encerraban el valor 0, se consideraba que el efecto estaba
+presente; en caso contrario, la interpretación era de ausencia de evidencia del
+efecto de la intervención (0).
+
+En la creación de estas variables se considera en todo momento el modelo
+poblacional utilizado.
+
+```{r}
+decisiones <- data |> mutate(
+  dec_lmer = case_when(
+    modpob == 0 & min_g10_pval_lmer < 0.05 ~ 1,
+    modpob == 0 & min_g10_pval_lmer >= 0.05 ~ 0,
+    
+    modpob == 1 & int_g10_pval_lmer < 0.05 ~ 1,
+    modpob == 1 & int_g10_pval_lmer >= 0.05 ~ 0,
+    
+    modpob == 2 & slop_g10_pval_lmer < 0.05 ~ 1,
+    modpob == 2 & slop_g10_pval_lmer >= 0.05 ~ 0,
+    
+    modpob == 3 & max_g10_pval_lmer < 0.05 ~ 1,
+    modpob == 3 & max_g10_pval_lmer >= 0.05 ~ 0,
+  ),
+  
+  dec_bunif = case_when(
+    modpob == 0 & ((min_g10_li_brms > 0) | (min_g10_ls_brms < 0)) ~ 1,
+    modpob == 0 & ((min_g10_li_brms < 0) & (min_g10_ls_brms > 0)) ~ 0,
+    
+    modpob == 1 & ((int_g10_li_uni_brms > 0) | (int_g10_ls_uni_brms < 0)) ~ 1,
+    modpob == 1 & ((int_g10_li_uni_brms < 0) & (int_g10_ls_uni_brms > 0)) ~ 0,
+    
+    modpob == 2 & ((slop_g10_li_uni_brms > 0) | (slop_g10_ls_uni_brms < 0)) ~ 1,
+    modpob == 2 & ((slop_g10_li_uni_brms < 0) & (slop_g10_ls_uni_brms > 0)) ~ 0,
+    
+    modpob == 3 & ((max_g10_li_uni_brms > 0) | (max_g10_ls_uni_brms < 0)) ~ 1,
+    modpob == 3 & ((max_g10_li_uni_brms < 0) & (max_g10_ls_uni_brms > 0)) ~ 0,
+    
+  ),
+  
+  dec_bcauchy1 = case_when(
+    modpob == 0 & ((min_g10_li_brms > 0) | (min_g10_ls_brms < 0)) ~ 1,
+    modpob == 0 & ((min_g10_li_brms < 0) & (min_g10_ls_brms > 0)) ~ 0,
+    
+    modpob == 1 & ((int_g10_li_c1_brms > 0) | (int_g10_ls_c1_brms < 0)) ~ 1,
+    modpob == 1 & ((int_g10_li_c1_brms < 0) & (int_g10_ls_c1_brms > 0)) ~ 0,
+    
+    modpob == 2 & ((slop_g10_li_c1_brms > 0) | (slop_g10_ls_c1_brms < 0)) ~ 1,
+    modpob == 2 & ((slop_g10_li_c1_brms < 0) & (slop_g10_ls_c1_brms > 0)) ~ 0,
+    
+    modpob == 3 & ((max_g10_li_c1_brms > 0) | (max_g10_ls_c1_brms < 0)) ~ 1,
+    modpob == 3 & ((max_g10_li_c1_brms < 0) & (max_g10_ls_c1_brms > 0)) ~ 0
+  ),
+  
+  dec_bcauchy2 = case_when(
+    modpob == 0 & ((min_g10_li_brms > 0) | (min_g10_ls_brms < 0)) ~ 1,
+    modpob == 0 & ((min_g10_li_brms < 0) & (min_g10_ls_brms > 0)) ~ 0,
+    
+    modpob == 1 & ((int_g10_li_c2_brms > 0) | (int_g10_ls_c2_brms < 0)) ~ 1,
+    modpob == 1 & ((int_g10_li_c2_brms < 0) & (int_g10_ls_c2_brms > 0)) ~ 0,
+    
+    modpob == 2 & ((slop_g10_li_c2_brms > 0) | (slop_g10_ls_c2_brms < 0)) ~ 1,
+    modpob == 2 & ((slop_g10_li_c2_brms < 0) & (slop_g10_ls_c2_brms > 0)) ~ 0,
+    
+    modpob == 3 & ((max_g10_li_c2_brms > 0) | (max_g10_ls_c2_brms < 0)) ~ 1,
+    modpob == 3 & ((max_g10_li_c2_brms < 0) & (max_g10_ls_c2_brms > 0)) ~ 0
+    
+  ),
+  
+  dec_bcauchy3 = case_when(
+    modpob == 0 & ((min_g10_li_brms > 0) | (min_g10_ls_brms < 0)) ~ 1,
+    modpob == 0 & ((min_g10_li_brms < 0) & (min_g10_ls_brms > 0)) ~ 0,
+    
+    modpob == 1 & ((int_g10_li_c3_brms > 0) | (int_g10_ls_c3_brms < 0)) ~ 1,
+    modpob == 1 & ((int_g10_li_c3_brms < 0) & (int_g10_ls_c3_brms > 0)) ~ 0,
+    
+    modpob == 2 & ((slop_g10_li_c3_brms > 0) | (slop_g10_ls_c3_brms < 0)) ~ 1,
+    modpob == 2 & ((slop_g10_li_c3_brms < 0) & (slop_g10_ls_c3_brms > 0)) ~ 0,
+    
+    modpob == 3 & ((max_g10_li_c3_brms > 0) | (max_g10_ls_c3_brms < 0)) ~ 1,
+    modpob == 3 & ((max_g10_li_c3_brms < 0) & (max_g10_ls_c3_brms > 0)) ~ 0
+    
+  ),
+  
+  dec_bnormal1 = case_when(
+    modpob == 0 & ((min_g10_li_brms > 0) | (min_g10_ls_brms < 0)) ~ 1,
+    modpob == 0 & ((min_g10_li_brms < 0) & (min_g10_ls_brms > 0)) ~ 0,
+    
+    modpob == 1 & ((int_g10_li_n1_brms > 0) | (int_g10_ls_n1_brms < 0)) ~ 1,
+    modpob == 1 & ((int_g10_li_n1_brms < 0) & (int_g10_ls_n1_brms > 0)) ~ 0,
+    
+    modpob == 2 & ((slop_g10_li_n1_brms > 0) | (slop_g10_ls_n1_brms < 0)) ~ 1,
+    modpob == 2 & ((slop_g10_li_n1_brms < 0) & (slop_g10_ls_n1_brms > 0)) ~ 0,
+    
+    modpob == 3 & ((max_g10_li_n1_brms > 0) | (max_g10_ls_n1_brms < 0)) ~ 1,
+    modpob == 3 & ((max_g10_li_n1_brms < 0) & (max_g10_ls_n1_brms > 0)) ~ 0
+  ),
+  
+  dec_bnormal2 = case_when(
+    modpob == 0 & ((min_g10_li_brms > 0) | (min_g10_ls_brms < 0)) ~ 1,
+    modpob == 0 & ((min_g10_li_brms < 0) & (min_g10_ls_brms > 0)) ~ 0,
+    
+    modpob == 1 & ((int_g10_li_n2_brms > 0) | (int_g10_ls_n2_brms < 0)) ~ 1,
+    modpob == 1 & ((int_g10_li_n2_brms < 0) & (int_g10_ls_n2_brms > 0)) ~ 0,
+    
+    modpob == 2 & ((slop_g10_li_n2_brms > 0) | (slop_g10_ls_n2_brms < 0)) ~ 1,
+    modpob == 2 & ((slop_g10_li_n2_brms < 0) & (slop_g10_ls_n2_brms > 0)) ~ 0,
+    
+    modpob == 3 & ((max_g10_li_n2_brms > 0) | (max_g10_ls_n2_brms < 0)) ~ 1,
+    modpob == 3 & ((max_g10_li_n2_brms < 0) & (max_g10_ls_n2_brms > 0)) ~ 0
+  ),
+  
+  dec_bnormal3 = case_when(
+    modpob == 0 & ((min_g10_li_brms > 0) | (min_g10_ls_brms < 0)) ~ 1,
+    modpob == 0 & ((min_g10_li_brms < 0) & (min_g10_ls_brms > 0)) ~ 0,
+    
+    modpob == 1 & ((int_g10_li_c3_brms > 0) | (int_g10_ls_c3_brms < 0)) ~ 1,
+    modpob == 1 & ((int_g10_li_c3_brms < 0) & (int_g10_ls_c3_brms > 0)) ~ 0,
+    
+    modpob == 2 & ((slop_g10_li_c3_brms > 0) | (slop_g10_ls_c3_brms < 0)) ~ 1,
+    modpob == 2 & ((slop_g10_li_c3_brms < 0) & (slop_g10_ls_c3_brms > 0)) ~ 0,
+    
+    modpob == 3 & ((max_g10_li_c3_brms > 0) | (max_g10_ls_c3_brms < 0)) ~ 1,
+    modpob == 3 & ((max_g10_li_c3_brms < 0) & (max_g10_ls_c3_brms > 0)) ~ 0
+  )
+  
+) |> select(ID, dec_lmer:dec_bnormal3, modpob, TE, MR, N)
+```
+
+```{r}
+summary(decisiones)
+```
+
+En la actualidad existen 469 casos perdidos en la decisión sobre el efecto de la
+intervención desde la perspectiva frecuentista y 470 en las decisiones desde el
+marco bayesiano. Los valores perdidos se deben a que, a la hora de realizar la
+simulación desechábamos el primer valor simulado y eso no es problemático. Sin
+embargo, la mayor parte de valores perdidos se debe a que una condición de simu-
+lación ha sido problemática:
+
+-   Modelo minimal (modpob == 0)
+-   Tamaño del efecto grande (TE == 2)
+-   Medidas repetidas: 5 (MR == 0)
+-   Número de sujetos: 3 (N == 1)
+
+En este escenario, de las 499 datos simulados que podríamos tener, sólo se
+analizan 175 y se pierden 325.
+<!-- TODO: ¿Habría que hacer de nuevo la simulación? -->
+
+# Selección del modelo correcto
+
+Para cada índice de ajuste relativo se crea una variable que evalúa si se
+selecciona el modelo correcto teniendo en cuenta el modelo poblacional que
+generó los datos y la comparación de los distintos valores para los distintos
+modelos (minimal, parcial intersecciones, parcial pendientes y maximal).
+
+Los datos utilizados son producto de analizar cada modelo generado con los
+cuatro modelos de análisis expuestos y de obtener cada uno de esos indicadores
+(AIC, BIC, WAIC, LOO). Se consideraba que el índice de ajuste relativo acertaba
+en la selección del modelo correcto si al comparar la magnitud que arroja entre
+los diferentes modelos, el más pequeño se correspondía con el del modelo
+poblacional correcto.
+
+E.g. Para la primera de las 82.000 réplicas, con datos generados de un modelo
+minimal, se obtienen estos valores:
+
+-   BIC minimal = 199,62;
+-   BIC parcial intersecciones = 203,62;
+-   BIC parcial pendientes = 203,81;
+-   BICmaximal = 211,804.
+
+En este caso, el índice de ajuste BIC acertaba a elegir el modelo correcto,
+puesto que el mínimo valor de los cuatro indicadores coincide con el modelo
+poblacional generado.
+
+Para la perspectiva bayesiana, y dentro del marco del análisis de sensibilidad,
+se crea una variable para cada distribución previa utilizada.
+
+## Bayesiano
+
+```{r}
+selecciones_LOO <- data_LOO |> mutate(
+  # N1
+  LOO_bn1 = case_when(
+    #modpob == 0 (minimal)
+    modpob == 0 & ((min_LOO_brms < int_LOO_n1_brms) & (min_LOO_brms < slop_LOO_n1_brms) & (min_LOO_brms < max_LOO_n1_brms)) ~ 1,
+    modpob == 0 & ((min_LOO_brms > int_LOO_n1_brms) | (min_LOO_brms > slop_LOO_n1_brms) | (min_LOO_brms > max_LOO_n1_brms)) ~ 0,
+    
+   #modpob == 1 (intersecciones)  
+    modpob == 1 & ((int_LOO_n1_brms < max_LOO_n1_brms) & (int_LOO_n1_brms < slop_LOO_n1_brms) & (int_LOO_n1_brms < min_LOO_brms)) ~ 1,
+   modpob == 1 & ((int_LOO_n1_brms > max_LOO_n1_brms) | (int_LOO_n1_brms > slop_LOO_n1_brms) | (int_LOO_n1_brms > min_LOO_brms)) ~ 0,
+   
+   #modpob == 2 (pendientes)
+   modpob == 2 & ((slop_LOO_n1_brms < max_LOO_n1_brms) & (slop_LOO_n1_brms <  int_LOO_n1_brms) & (slop_LOO_n1_brms < min_LOO_brms)) ~ 1,
+   modpob == 2 & ((slop_LOO_n1_brms > max_LOO_n1_brms) | (slop_LOO_n1_brms >  int_LOO_n1_brms) | (slop_LOO_n1_brms > min_LOO_brms)) ~ 0,
+   
+   #modpob == 3 (maximal)
+   modpob == 3 & ((max_LOO_n1_brms < slop_LOO_n1_brms) & (max_LOO_n1_brms < int_LOO_n1_brms) & (max_LOO_n1_brms < min_LOO_brms)) ~ 1,
+   modpob == 3 & ((max_LOO_n1_brms > slop_LOO_n1_brms) | (max_LOO_n1_brms > int_LOO_n1_brms) | (max_LOO_n1_brms > min_LOO_brms)) ~ 0 #DUDA AQUÍ PORQUE EN EL CÓDIGO ORIGINAL ERA 1
+  ),
+  
+  #N2
+    LOO_bn2 = case_when(
+    #modpob == 0 (minimal)
+    modpob == 0 & ((min_LOO_brms < int_LOO_n2_brms) & (min_LOO_brms < slop_LOO_n2_brms) & (min_LOO_brms < max_LOO_n2_brms)) ~ 1,
+    modpob == 0 & ((min_LOO_brms > int_LOO_n2_brms) | (min_LOO_brms > slop_LOO_n2_brms) | (min_LOO_brms > max_LOO_n2_brms)) ~ 0,
+    
+   #modpob == 1 (intersecciones)  
+    modpob == 1 & ((int_LOO_n2_brms < max_LOO_n2_brms) & (int_LOO_n2_brms < slop_LOO_n2_brms) & (int_LOO_n2_brms < min_LOO_brms)) ~ 1,
+   modpob == 1 & ((int_LOO_n2_brms > max_LOO_n2_brms) | (int_LOO_n2_brms > slop_LOO_n2_brms) | (int_LOO_n2_brms > min_LOO_brms)) ~ 0,
+   
+   #modpob == 2 (pendientes)
+   modpob == 2 & ((slop_LOO_n2_brms < max_LOO_n2_brms) & (slop_LOO_n2_brms <  int_LOO_n2_brms) & (slop_LOO_n2_brms < min_LOO_brms)) ~ 1,
+   modpob == 2 & ((slop_LOO_n2_brms > max_LOO_n2_brms) | (slop_LOO_n2_brms >  int_LOO_n2_brms) | (slop_LOO_n2_brms > min_LOO_brms)) ~ 0,
+   
+   #modpob == 3 (maximal)
+   modpob == 3 & ((max_LOO_n2_brms < slop_LOO_n2_brms) & (max_LOO_n2_brms < int_LOO_n2_brms) & (max_LOO_n2_brms < min_LOO_brms)) ~ 1,
+   modpob == 3 & ((max_LOO_n2_brms > slop_LOO_n2_brms) | (max_LOO_n2_brms > int_LOO_n2_brms) | (max_LOO_n2_brms > min_LOO_brms)) ~ 0 #DUDA AQUÍ PORQUE EN EL CÓDIGO ORIGINAL ERA 1
+  ),
+  
+    #N3
+    LOO_bn3 = case_when(
+    #modpob == 0 (minimal)
+    modpob == 0 & ((min_LOO_brms < int_LOO_n3_brms) & (min_LOO_brms < slop_LOO_n3_brms) & (min_LOO_brms < max_LOO_n3_brms)) ~ 1,
+    modpob == 0 & ((min_LOO_brms > int_LOO_n3_brms) | (min_LOO_brms > slop_LOO_n3_brms) | (min_LOO_brms > max_LOO_n3_brms)) ~ 0,
+    
+   #modpob == 1 (intersecciones)  
+    modpob == 1 & ((int_LOO_n3_brms < max_LOO_n3_brms) & (int_LOO_n3_brms < slop_LOO_n3_brms) & (int_LOO_n3_brms < min_LOO_brms)) ~ 1,
+   modpob == 1 & ((int_LOO_n3_brms > max_LOO_n3_brms) | (int_LOO_n3_brms > slop_LOO_n3_brms) | (int_LOO_n3_brms > min_LOO_brms)) ~ 0,
+   
+   #modpob == 2 (pendientes)
+   modpob == 2 & ((slop_LOO_n3_brms < max_LOO_n3_brms) & (slop_LOO_n3_brms <  int_LOO_n3_brms) & (slop_LOO_n3_brms < min_LOO_brms)) ~ 1,
+   modpob == 2 & ((slop_LOO_n3_brms > max_LOO_n3_brms) | (slop_LOO_n3_brms >  int_LOO_n3_brms) | (slop_LOO_n3_brms > min_LOO_brms)) ~ 0,
+   
+   #modpob == 3 (maximal)
+   modpob == 3 & ((max_LOO_n3_brms < slop_LOO_n3_brms) & (max_LOO_n3_brms < int_LOO_n3_brms) & (max_LOO_n3_brms < min_LOO_brms)) ~ 1,
+   modpob == 3 & ((max_LOO_n3_brms > slop_LOO_n3_brms) | (max_LOO_n3_brms > int_LOO_n3_brms) | (max_LOO_n3_brms > min_LOO_brms)) ~ 0 #DUDA AQUÍ PORQUE EN EL CÓDIGO ORIGINAL ERA 1
+  ),
+  
+# C1
+
+   LOO_bc1 = case_when(
+    #modpob == 0 (minimal)
+    modpob == 0 & ((min_LOO_brms < int_LOO_c1_brms) & (min_LOO_brms < slop_LOO_c1_brms) & (min_LOO_brms < max_LOO_c1_brms)) ~ 1,
+    modpob == 0 & ((min_LOO_brms > int_LOO_c1_brms) | (min_LOO_brms > slop_LOO_c1_brms) | (min_LOO_brms > max_LOO_c1_brms)) ~ 0,
+    
+   #modpob == 1 (intersecciones)  
+    modpob == 1 & ((int_LOO_c1_brms < max_LOO_c1_brms) & (int_LOO_c1_brms < slop_LOO_c1_brms) & (int_LOO_c1_brms < min_LOO_brms)) ~ 1,
+   modpob == 1 & ((int_LOO_c1_brms > max_LOO_c1_brms) | (int_LOO_c1_brms > slop_LOO_c1_brms) | (int_LOO_c1_brms > min_LOO_brms)) ~ 0,
+   
+   #modpob == 2 (pendientes)
+   modpob == 2 & ((slop_LOO_c1_brms < max_LOO_c1_brms) & (slop_LOO_c1_brms <  int_LOO_c1_brms) & (slop_LOO_c1_brms < min_LOO_brms)) ~ 1,
+   modpob == 2 & ((slop_LOO_c1_brms > max_LOO_c1_brms) | (slop_LOO_c1_brms >  int_LOO_c1_brms) | (slop_LOO_c1_brms > min_LOO_brms)) ~ 0,
+   
+   #modpob == 3 (maximal)
+   modpob == 3 & ((max_LOO_c1_brms < slop_LOO_c1_brms) & (max_LOO_c1_brms < int_LOO_c1_brms) & (max_LOO_c1_brms < min_LOO_brms)) ~ 1,
+   modpob == 3 & ((max_LOO_c1_brms > slop_LOO_c1_brms) | (max_LOO_c1_brms > int_LOO_c1_brms) | (max_LOO_c1_brms > min_LOO_brms)) ~ 0 #DUDA AQUÍ PORQUE EN EL CÓDIGO ORIGINAL ERA 1
+  ),
+  
+  #c2
+    LOO_bc2 = case_when(
+    #modpob == 0 (minimal)
+    modpob == 0 & ((min_LOO_brms < int_LOO_c2_brms) & (min_LOO_brms < slop_LOO_c2_brms) & (min_LOO_brms < max_LOO_c2_brms)) ~ 1,
+    modpob == 0 & ((min_LOO_brms > int_LOO_c2_brms) | (min_LOO_brms > slop_LOO_c2_brms) | (min_LOO_brms > max_LOO_c2_brms)) ~ 0,
+    
+   #modpob == 1 (intersecciones)  
+    modpob == 1 & ((int_LOO_c2_brms < max_LOO_c2_brms) & (int_LOO_c2_brms < slop_LOO_c2_brms) & (int_LOO_c2_brms < min_LOO_brms)) ~ 1,
+   modpob == 1 & ((int_LOO_c2_brms > max_LOO_c2_brms) | (int_LOO_c2_brms > slop_LOO_c2_brms) | (int_LOO_c2_brms > min_LOO_brms)) ~ 0,
+   
+   #modpob == 2 (pendientes)
+   modpob == 2 & ((slop_LOO_c2_brms < max_LOO_c2_brms) & (slop_LOO_c2_brms <  int_LOO_c2_brms) & (slop_LOO_c2_brms < min_LOO_brms)) ~ 1,
+   modpob == 2 & ((slop_LOO_c2_brms > max_LOO_c2_brms) | (slop_LOO_c2_brms >  int_LOO_c2_brms) | (slop_LOO_c2_brms > min_LOO_brms)) ~ 0,
+   
+   #modpob == 3 (maximal)
+   modpob == 3 & ((max_LOO_c2_brms < slop_LOO_c2_brms) & (max_LOO_c2_brms < int_LOO_c2_brms) & (max_LOO_c2_brms < min_LOO_brms)) ~ 1,
+   modpob == 3 & ((max_LOO_c2_brms > slop_LOO_c2_brms) | (max_LOO_c2_brms > int_LOO_c2_brms) | (max_LOO_c2_brms > min_LOO_brms)) ~ 0 #DUDA AQUÍ PORQUE EN EL CÓDIGO ORIGINAL ERA 1
+  ),
+  
+    #c3
+    LOO_bc3 = case_when(
+    #modpob == 0 (minimal)
+    modpob == 0 & ((min_LOO_brms < int_LOO_c3_brms) & (min_LOO_brms < slop_LOO_c3_brms) & (min_LOO_brms < max_LOO_c3_brms)) ~ 1,
+    modpob == 0 & ((min_LOO_brms > int_LOO_c3_brms) | (min_LOO_brms > slop_LOO_c3_brms) | (min_LOO_brms > max_LOO_c3_brms)) ~ 0,
+    
+   #modpob == 1 (intersecciones)  
+    modpob == 1 & ((int_LOO_c3_brms < max_LOO_c3_brms) & (int_LOO_c3_brms < slop_LOO_c3_brms) & (int_LOO_c3_brms < min_LOO_brms)) ~ 1,
+   modpob == 1 & ((int_LOO_c3_brms > max_LOO_c3_brms) | (int_LOO_c3_brms > slop_LOO_c3_brms) | (int_LOO_c3_brms > min_LOO_brms)) ~ 0,
+   
+   #modpob == 2 (pendientes)
+   modpob == 2 & ((slop_LOO_c3_brms < max_LOO_c3_brms) & (slop_LOO_c3_brms <  int_LOO_c3_brms) & (slop_LOO_c3_brms < min_LOO_brms)) ~ 1,
+   modpob == 2 & ((slop_LOO_c3_brms > max_LOO_c3_brms) | (slop_LOO_c3_brms >  int_LOO_c3_brms) | (slop_LOO_c3_brms > min_LOO_brms)) ~ 0,
+   
+   #modpob == 3 (maximal)
+   modpob == 3 & ((max_LOO_c3_brms < slop_LOO_c3_brms) & (max_LOO_c3_brms < int_LOO_c3_brms) & (max_LOO_c3_brms < min_LOO_brms)) ~ 1,
+   modpob == 3 & ((max_LOO_c3_brms > slop_LOO_c3_brms) | (max_LOO_c3_brms > int_LOO_c3_brms) | (max_LOO_c3_brms > min_LOO_brms)) ~ 0, #DUDA AQUÍ PORQUE EN EL CÓDIGO ORIGINAL ERA 1
+  ), 
+
+#uniform
+LOO_unif = case_when(
+      #modpob == 0 (minimal)
+    modpob == 0 & ((min_LOO_brms < int_LOO_uni_brms) & (min_LOO_brms < slop_LOO_uni_brms) & (min_LOO_brms < max_LOO_uni_brms)) ~ 1,
+    modpob == 0 & ((min_LOO_brms > int_LOO_uni_brms) | (min_LOO_brms > slop_LOO_uni_brms) | (min_LOO_brms > max_LOO_uni_brms)) ~ 0,
+    
+   #modpob == 1 (intersecciones)  
+    modpob == 1 & ((int_LOO_uni_brms < max_LOO_uni_brms) & (int_LOO_uni_brms < slop_LOO_uni_brms) & (int_LOO_uni_brms < min_LOO_brms)) ~ 1,
+   modpob == 1 & ((int_LOO_uni_brms > max_LOO_uni_brms) | (int_LOO_uni_brms > slop_LOO_uni_brms) | (int_LOO_uni_brms > min_LOO_brms)) ~ 0,
+   
+   #modpob == 2 (pendientes)
+   modpob == 2 & ((slop_LOO_uni_brms < max_LOO_uni_brms) & (slop_LOO_uni_brms <  int_LOO_uni_brms) & (slop_LOO_uni_brms < min_LOO_brms)) ~ 1,
+   modpob == 2 & ((slop_LOO_uni_brms > max_LOO_uni_brms) | (slop_LOO_uni_brms >  int_LOO_uni_brms) | (slop_LOO_uni_brms > min_LOO_brms)) ~ 0,
+   
+   #modpob == 3 (maximal)
+   modpob == 3 & ((max_LOO_uni_brms < slop_LOO_uni_brms) & (max_LOO_uni_brms < int_LOO_uni_brms) & (max_LOO_uni_brms < min_LOO_brms)) ~ 1,
+   modpob == 3 & ((max_LOO_uni_brms > slop_LOO_uni_brms) | (max_LOO_uni_brms > int_LOO_uni_brms) | (max_LOO_uni_brms > min_LOO_brms)) ~ 0, #DUDA AQUÍ PORQUE EN EL CÓDIGO ORIGINAL ERA 1
+  ) 
+) |> select(ID, LOO_bn1:LOO_unif, modpob, TE, MR, N) 
+
+```
+
+```{r}
+summary(selecciones_LOO)
+```
+
+```{r}
+selecciones_WAIC <- data_WAIC |> mutate(
+  sel_bnormal1 = case_when(
+    modpob == 0 & ((min_WAIC_brms < int_WAIC_n1_brms) & (min_WAIC_brms <  slop_WAIC_n1_brms) & (min_WAIC_brms < max_WAIC_n1_brms)) ~ 1,
+    modpob == 0 & ((min_WAIC_brms > int_WAIC_n1_brms) | (min_WAIC_brms >  slop_WAIC_n1_brms) | (min_WAIC_brms > max_WAIC_n1_brms)) ~ 0,
+    
+    modpob == 1 & ((int_WAIC_n1_brms < max_WAIC_n1_brms) & (int_WAIC_n1_brms <  slop_WAIC_n1_brms) & (int_WAIC_n1_brms < min_WAIC_brms)) ~ 1,
+    modpob == 1 & ((int_WAIC_n1_brms >  max_WAIC_n1_brms) | (int_WAIC_n1_brms > slop_WAIC_n1_brms) | (int_WAIC_n1_brms > min_WAIC_brms)) ~ 0,
+    
+    modpob == 2 & ((slop_WAIC_n1_brms <  max_WAIC_n1_brms) & (slop_WAIC_n1_brms < int_WAIC_n1_brms) & (slop_WAIC_n1_brms < min_WAIC_brms)) ~ 1,
+    modpob == 2 & ((slop_WAIC_n1_brms >  max_WAIC_n1_brms) | (slop_WAIC_n1_brms >  int_WAIC_n1_brms) | (slop_WAIC_n1_brms > min_WAIC_brms)) ~ 0,
+    
+    modpob == 3 & ((max_WAIC_n1_brms <  slop_WAIC_n1_brms) & (max_WAIC_n1_brms <  int_WAIC_n1_brms) & (max_WAIC_n1_brms < min_WAIC_brms)) ~ 1,
+    modpob == 3 & ((max_WAIC_n1_brms >  slop_WAIC_n1_brms) | (max_WAIC_n1_brms >  int_WAIC_n1_brms) | (max_WAIC_n1_brms > min_WAIC_brms)) ~ 0 #DUDA AQUÍ PORQUE EN EL CÓDIGO ORIGINAL ERA 1
+  ),
+  
+  sel_bnormal2 = case_when(
+   modpob == 0 & ((min_WAIC_brms < int_WAIC_n2_brms) & (min_WAIC_brms <  slop_WAIC_n2_brms) & (min_WAIC_brms < max_WAIC_n2_brms)) ~ 1,
+    modpob == 0 & ((min_WAIC_brms > int_WAIC_n2_brms) | (min_WAIC_brms >  slop_WAIC_n2_brms) | (min_WAIC_brms > max_WAIC_n2_brms)) ~ 0,
+    
+    modpob == 1 & ((int_WAIC_n2_brms < max_WAIC_n2_brms) & (int_WAIC_n2_brms <  slop_WAIC_n2_brms) & (int_WAIC_n2_brms < min_WAIC_brms)) ~ 1,
+    modpob == 1 & ((int_WAIC_n2_brms >  max_WAIC_n2_brms) | (int_WAIC_n2_brms > slop_WAIC_n2_brms) | (int_WAIC_n2_brms > min_WAIC_brms)) ~ 0,
+    
+    modpob == 2 & ((slop_WAIC_n2_brms <  max_WAIC_n2_brms) & (slop_WAIC_n2_brms < int_WAIC_n2_brms) & (slop_WAIC_n2_brms < min_WAIC_brms)) ~ 1,
+    modpob == 2 & ((slop_WAIC_n2_brms >  max_WAIC_n2_brms) | (slop_WAIC_n2_brms >  int_WAIC_n2_brms) | (slop_WAIC_n2_brms > min_WAIC_brms)) ~ 0,
+    
+    modpob == 3 & ((max_WAIC_n2_brms <  slop_WAIC_n2_brms) & (max_WAIC_n2_brms <  int_WAIC_n2_brms) & (max_WAIC_n2_brms < min_WAIC_brms)) ~ 1,
+    modpob == 3 & ((max_WAIC_n2_brms >  slop_WAIC_n2_brms) | (max_WAIC_n2_brms >  int_WAIC_n2_brms) | (max_WAIC_n2_brms > min_WAIC_brms)) ~ 0 #DUDA AQUÍ PORQUE EN EL CÓDIGO ORIGINAL ERA 1
+  
+  ),
+  
+  sel_bnormal3 = case_when(
+    modpob == 0 & ((min_WAIC_brms < int_WAIC_n3_brms) & (min_WAIC_brms <  slop_WAIC_n3_brms) & (min_WAIC_brms < max_WAIC_n3_brms)) ~ 1,
+    modpob == 0 & ((min_WAIC_brms > int_WAIC_n3_brms) | (min_WAIC_brms >  slop_WAIC_n3_brms) | (min_WAIC_brms > max_WAIC_n3_brms)) ~ 0,
+    
+    modpob == 1 & ((int_WAIC_n3_brms < max_WAIC_n3_brms) & (int_WAIC_n3_brms <  slop_WAIC_n3_brms) & (int_WAIC_n3_brms < min_WAIC_brms)) ~ 1,
+    modpob == 1 & ((int_WAIC_n3_brms >  max_WAIC_n3_brms) | (int_WAIC_n3_brms > slop_WAIC_n3_brms) | (int_WAIC_n3_brms > min_WAIC_brms)) ~ 0,
+    
+    modpob == 2 & ((slop_WAIC_n3_brms <  max_WAIC_n3_brms) & (slop_WAIC_n3_brms < int_WAIC_n3_brms) & (slop_WAIC_n3_brms < min_WAIC_brms)) ~ 1,
+    modpob == 2 & ((slop_WAIC_n3_brms >  max_WAIC_n3_brms) | (slop_WAIC_n3_brms >  int_WAIC_n3_brms) | (slop_WAIC_n3_brms > min_WAIC_brms)) ~ 0,
+    
+    modpob == 3 & ((max_WAIC_n3_brms <  slop_WAIC_n3_brms) & (max_WAIC_n3_brms <  int_WAIC_n3_brms) & (max_WAIC_n3_brms < min_WAIC_brms)) ~ 1,
+    modpob == 3 & ((max_WAIC_n3_brms >  slop_WAIC_n3_brms) | (max_WAIC_n3_brms >  int_WAIC_n3_brms) | (max_WAIC_n3_brms > min_WAIC_brms)) ~ 0 #DUDA AQUÍ PORQUE EN EL CÓDIGO ORIGINAL ERA 1
+  
+  ),
+  
+  sel_bcauchy1 = case_when(
+    
+    modpob == 0 & ((min_WAIC_brms < int_WAIC_c1_brms) & (min_WAIC_brms <  slop_WAIC_c1_brms) & (min_WAIC_brms < max_WAIC_c1_brms)) ~ 1,
+    modpob == 0 & ((min_WAIC_brms > int_WAIC_c1_brms) | (min_WAIC_brms >  slop_WAIC_c1_brms) | (min_WAIC_brms > max_WAIC_c1_brms)) ~ 0,
+    
+    modpob == 1 & ((int_WAIC_c1_brms < max_WAIC_c1_brms) & (int_WAIC_c1_brms <  slop_WAIC_c1_brms) & (int_WAIC_c1_brms < min_WAIC_brms)) ~ 1,
+    modpob == 1 & ((int_WAIC_c1_brms >  max_WAIC_c1_brms) | (int_WAIC_c1_brms > slop_WAIC_c1_brms) | (int_WAIC_c1_brms > min_WAIC_brms)) ~ 0,
+    
+    modpob == 2 & ((slop_WAIC_c1_brms <  max_WAIC_c1_brms) & (slop_WAIC_c1_brms < int_WAIC_c1_brms) & (slop_WAIC_c1_brms < min_WAIC_brms)) ~ 1,
+    modpob == 2 & ((slop_WAIC_c1_brms >  max_WAIC_c1_brms) | (slop_WAIC_c1_brms >  int_WAIC_c1_brms) | (slop_WAIC_c1_brms > min_WAIC_brms)) ~ 0,
+    
+    modpob == 3 & ((max_WAIC_c1_brms <  slop_WAIC_c1_brms) & (max_WAIC_c1_brms <  int_WAIC_c1_brms) & (max_WAIC_c1_brms < min_WAIC_brms)) ~ 1,
+    modpob == 3 & ((max_WAIC_c1_brms >  slop_WAIC_c1_brms) | (max_WAIC_c1_brms >  int_WAIC_c1_brms) | (max_WAIC_c1_brms > min_WAIC_brms)) ~ 0 #DUDA AQUÍ PORQUE EN EL CÓDIGO ORIGINAL ERA 1
+  
+  ),
+  
+  sel_bcauchy2 = case_when(
+    modpob == 0 & ((min_WAIC_brms < int_WAIC_c2_brms) & (min_WAIC_brms <  slop_WAIC_c2_brms) & (min_WAIC_brms < max_WAIC_c2_brms)) ~ 1,
+    modpob == 0 & ((min_WAIC_brms > int_WAIC_c2_brms) | (min_WAIC_brms >  slop_WAIC_c2_brms) | (min_WAIC_brms > max_WAIC_c2_brms)) ~ 0,
+    
+    modpob == 1 & ((int_WAIC_c2_brms < max_WAIC_c2_brms) & (int_WAIC_c2_brms <  slop_WAIC_c2_brms) & (int_WAIC_c2_brms < min_WAIC_brms)) ~ 1,
+    modpob == 1 & ((int_WAIC_c2_brms >  max_WAIC_c2_brms) | (int_WAIC_c2_brms > slop_WAIC_c2_brms) | (int_WAIC_c2_brms > min_WAIC_brms)) ~ 0,
+    
+    modpob == 2 & ((slop_WAIC_c2_brms <  max_WAIC_c2_brms) & (slop_WAIC_c2_brms < int_WAIC_c2_brms) & (slop_WAIC_c2_brms < min_WAIC_brms)) ~ 1,
+    modpob == 2 & ((slop_WAIC_c2_brms >  max_WAIC_c2_brms) | (slop_WAIC_c2_brms >  int_WAIC_c2_brms) | (slop_WAIC_c2_brms > min_WAIC_brms)) ~ 0,
+    
+    modpob == 3 & ((max_WAIC_c2_brms <  slop_WAIC_c2_brms) & (max_WAIC_c2_brms <  int_WAIC_c2_brms) & (max_WAIC_c2_brms < min_WAIC_brms)) ~ 1,
+    modpob == 3 & ((max_WAIC_c2_brms >  slop_WAIC_c2_brms) | (max_WAIC_c2_brms >  int_WAIC_c2_brms) | (max_WAIC_c2_brms > min_WAIC_brms)) ~ 0 #DUDA AQUÍ PORQUE EN EL CÓDIGO ORIGINAL ERA 1
+  
+  ),
+  
+  sel_bcauchy3 = case_when(
+    modpob == 0 & ((min_WAIC_brms < int_WAIC_c3_brms) & (min_WAIC_brms <  slop_WAIC_c3_brms) & (min_WAIC_brms < max_WAIC_c3_brms)) ~ 1,
+    modpob == 0 & ((min_WAIC_brms > int_WAIC_c3_brms) | (min_WAIC_brms >  slop_WAIC_c3_brms) | (min_WAIC_brms > max_WAIC_c3_brms)) ~ 0,
+    
+    modpob == 1 & ((int_WAIC_c3_brms < max_WAIC_c3_brms) & (int_WAIC_c3_brms <  slop_WAIC_c3_brms) & (int_WAIC_c3_brms < min_WAIC_brms)) ~ 1,
+    modpob == 1 & ((int_WAIC_c3_brms >  max_WAIC_c3_brms) | (int_WAIC_c3_brms > slop_WAIC_c3_brms) | (int_WAIC_c3_brms > min_WAIC_brms)) ~ 0,
+    
+    modpob == 2 & ((slop_WAIC_c3_brms <  max_WAIC_c3_brms) & (slop_WAIC_c3_brms < int_WAIC_c3_brms) & (slop_WAIC_c3_brms < min_WAIC_brms)) ~ 1,
+    modpob == 2 & ((slop_WAIC_c3_brms >  max_WAIC_c3_brms) | (slop_WAIC_c3_brms >  int_WAIC_c3_brms) | (slop_WAIC_c3_brms > min_WAIC_brms)) ~ 0,
+    
+    modpob == 3 & ((max_WAIC_c3_brms <  slop_WAIC_c3_brms) & (max_WAIC_c3_brms <  int_WAIC_c3_brms) & (max_WAIC_c3_brms < min_WAIC_brms)) ~ 1,
+    modpob == 3 & ((max_WAIC_c3_brms >  slop_WAIC_c3_brms) | (max_WAIC_c3_brms >  int_WAIC_c3_brms) | (max_WAIC_c3_brms > min_WAIC_brms)) ~ 0 #DUDA AQUÍ PORQUE EN EL CÓDIGO ORIGINAL ERA 1
+  ),
+  
+  sel_bunif = case_when(
+    modpob == 0 & ((min_WAIC_brms < int_WAIC_uni_brms) & (min_WAIC_brms <  slop_WAIC_uni_brms) & (min_WAIC_brms < max_WAIC_uni_brms)) ~ 1,
+    modpob == 0 & ((min_WAIC_brms > int_WAIC_uni_brms) | (min_WAIC_brms >  slop_WAIC_uni_brms) | (min_WAIC_brms > max_WAIC_uni_brms)) ~ 0,
+    
+    modpob == 1 & ((int_WAIC_uni_brms < max_WAIC_uni_brms) & (int_WAIC_uni_brms <  slop_WAIC_uni_brms) & (int_WAIC_uni_brms < min_WAIC_brms)) ~ 1,
+    modpob == 1 & ((int_WAIC_uni_brms >  max_WAIC_uni_brms) | (int_WAIC_uni_brms > slop_WAIC_uni_brms) | (int_WAIC_uni_brms > min_WAIC_brms)) ~ 0,
+    
+    modpob == 2 & ((slop_WAIC_uni_brms <  max_WAIC_uni_brms) & (slop_WAIC_uni_brms < int_WAIC_uni_brms) & (slop_WAIC_uni_brms < min_WAIC_brms)) ~ 1,
+    modpob == 2 & ((slop_WAIC_uni_brms >  max_WAIC_uni_brms) | (slop_WAIC_uni_brms >  int_WAIC_uni_brms) | (slop_WAIC_uni_brms > min_WAIC_brms)) ~ 0,
+    
+    modpob == 3 & ((max_WAIC_uni_brms <  slop_WAIC_uni_brms) & (max_WAIC_uni_brms <  int_WAIC_uni_brms) & (max_WAIC_uni_brms < min_WAIC_brms)) ~ 1,
+    modpob == 3 & ((max_WAIC_uni_brms >  slop_WAIC_uni_brms) | (max_WAIC_uni_brms >  int_WAIC_uni_brms) | (max_WAIC_uni_brms > min_WAIC_brms)) ~ 0 #DUDA AQUÍ PORQUE EN EL CÓDIGO ORIGINAL ERA 1
+  )
+  
+) |> select(ID, sel_bnormal1:sel_bunif, modpob, TE, MR, N)
+```
+
+```{r}
+summary(selecciones_WAIC)
+```
+
+## Frecuentista
+
+```{r}
+seleccion_BIC <- data_BIC |> mutate(
+  sel_lmerBIC = case_when(
+    modpob == 0 & ((min_BIC <  max_BIC) & (min_BIC <  slop_BIC) & (min_BIC <  int_BIC)) ~ 1,
+    modpob == 0 & ((min_BIC >  max_BIC) | (min_BIC >  slop_BIC) | (min_BIC >  int_BIC)) ~ 0,
+    
+    modpob == 1 & ((int_BIC <  max_BIC) & (int_BIC <  slop_BIC) & (int_BIC <  min_BIC)) ~ 1,
+    modpob == 1 & ((int_BIC >  max_BIC) | (int_BIC >  slop_BIC) | (int_BIC >  min_BIC)) ~ 0,
+    
+    modpob == 2 & ((slop_BIC < max_BIC) & (slop_BIC < int_BIC) & (slop_BIC <  min_BIC)) ~ 1,
+    modpob == 2 & ((slop_BIC > max_BIC) | (slop_BIC > int_BIC) | (slop_BIC >  min_BIC)) ~ 0,
+    
+    modpob == 3 & ((max_BIC < slop_BIC) & (max_BIC < int_BIC) & (max_BIC <  min_BIC)) ~ 1,
+    modpob == 3 & ((max_BIC > slop_BIC) | (max_BIC > int_BIC) | (max_BIC >  min_BIC)) ~ 0
+    
+  )
+)
+```
+
+```{r}
+summary(seleccion_BIC)
+```
+
+```{r}
+seleccion_AIC <- data_AIC |> mutate(
+  sel_lmerAIC = case_when(
+    modpob == 0 & ((min_AIC <  max_AIC) & (min_AIC <  slop_AIC) & (min_AIC <  int_AIC)) ~ 1,
+    modpob == 0 & ((min_AIC >  max_AIC) | (min_AIC >  slop_AIC) | (min_AIC >  int_AIC)) ~ 0,
+    
+    modpob == 1 & ((int_AIC <  max_AIC) & (int_AIC <  slop_AIC) & (int_AIC <  min_AIC)) ~ 1,
+    modpob == 1 & ((int_AIC >  max_AIC) | (int_AIC >  slop_AIC) | (int_AIC >  min_AIC)) ~ 0,
+    
+    modpob == 2 & ((slop_AIC < max_AIC) & (slop_AIC < int_AIC) & (slop_AIC <  min_AIC)) ~ 1,
+    modpob == 2 & ((slop_AIC > max_AIC) | (slop_AIC > int_AIC) | (slop_AIC >  min_AIC)) ~ 0,
+    
+    modpob == 3 & ((max_AIC < slop_AIC) & (max_AIC < int_AIC) & (max_AIC <  min_AIC)) ~ 1,
+    modpob == 3 & ((max_AIC > slop_AIC) | (max_AIC > int_AIC) | (max_AIC >  min_AIC)) ~ 0
+  )
+)
+```
+
+```{r}
+summary(seleccion_AIC)
+```
+
+# Unión de dataframes
+
+Unimos todas las variables que nos interesan -más allá de los valores únicos
+producto de la simulación- para poder facilitar las tareas de análisis de datos:
+
+```{r}
+df <- left_join(decisiones, seleccion_AIC)
+df <- left_join(df, seleccion_BIC)
+df <- left_join(df, selecciones_WAIC)
+df <- left_join(df, selecciones_LOO)
+```
+
+```{r}
+df
+summary(df)
+
+#¿por qué hay 6875 NAs en dec_lmer y 470 en el resto? (a veces 460)
+
+df |> filter(if_any(everything(), is.na))
+
+View(.Last.value)
+```
+
+```{r}
+write_csv(df, "dat/df_final.csv")
+```
+
+# Análisis de datos
+
+## 1. Análisis de sensibilidad de los métodos bayesianos
+
+### 1.1. Análisis de la potencia
+
+```{r}
+df_potencia <- df |> filter(TE > 0 & modpob > 0) |> 
+                              select(ID:N)
+# ¿Excluimos el minimal por no tener efectos aleatorios?
+```
+
+### Pre-procesamiento
+
+Tendremos que transformar el dataframe a formato 'long'. Queremos obtener una
+única variable (método bayesiano) y que cada nivel de la variable intra-sujeto
+sea cada una de los métodos de estimación obtenidos.
+
+```{r}
+df_potencia_long <- df_potencia |> 
+  gather(key = "method", value = "value", dec_bunif, dec_bcauchy1, dec_bcauchy2, dec_bcauchy3, dec_bnormal1, dec_bnormal2, dec_bnormal3) |> 
+  convert_as_factor(ID, method, TE, MR, N, modpob)
+```
+
+### Análisis estadístico
+
+```{r}
+df_potencia_long |> 
+  group_by(method) |> 
+  get_summary_stats(value, type = "mean_sd")
+
+#Coincide con la sección "Potencia" de la tabla 3.1.
+```
+
+```{r}
+df_potencia_long |> 
+  group_by(method) |> 
+  identify_outliers(value)
+```
+
+```{r}
+model <- aov_car(
+  value ~ modpob * TE * MR * N + Error(ID/method), #error para medidas repetidas
+  data = df_potencia_long,
+  factorize = FALSE,
+  anova_table = list(es = "pes")
+)
+
+summary(model)
+```
+
+```{r}
+ggplot(df_potencia_long, aes(x = method, y = value, group = interaction(modpob, TE), colour = modpob)) +
+  stat_summary(fun = mean, geom = "line") +
+  stat_summary(fun = mean, geom = "point") +
+  theme_minimal() +
+  labs(title = "Gráfico de perfiles", x = "Método", y = "Valor medio")
+```
+
+```{r}
+#otra forma de hacer el ANOVA
+res.aov <- anova_test(
+  data = df_potencia_long,
+  dv = value,
+  wid = ID,
+  within = method,
+  between = c(modpob, TE, MR, N),
+  type = 3,
+  effect.size = "pes"
+)
+
+get_anova_table(res.aov)
+
+# Duda: en Resultados hablamos de los resultados del ANOVA de tres factores inter-sujetos (TE, MR y N), pero en la sintaxis también aparece "modpob".
+
+#Los tamaños del efecto no coinciden exactamente con los reportados en la
+#primera sección (partial eta square 0.011 del método, aquí es 0.002, aunque 
+#va en concordancia).
+```
+
+## 1.2. Análisis de la tasa de error tipo I
+
+### Pre-procesamiento
+
+```{r}
+df_tdeI_bayes <- df |> filter(TE == 0 & modpob > 0) |> select(ID:N)
+# ¿Excluimos el minimal por no tener efectos aleatorios?
+
+df_tdeI_bayes
+```
+
+```{r}
+df_tdeI_bayes_long <- df_tdeI_bayes |> 
+  gather(key = "method", value = "value", dec_bunif, dec_bcauchy1, dec_bcauchy2, dec_bcauchy3, dec_bnormal1, dec_bnormal2, dec_bnormal3) |> 
+  convert_as_factor(ID, method, TE, MR, N, modpob)
+```
+
+### Análisis estadístico
+
+```{r}
+df_tdeI_bayes_long |> 
+  group_by(method) |> 
+  get_summary_stats(value, type = "mean_sd")
+
+#Coincide con la sección "Tasa de error tipo I" de la tabla 3.1.
+```
+
+```{r}
+df_tdeI_bayes_long |> 
+  group_by(method) |> 
+  identify_outliers(value)
+
+#Hay 4130 outliers
+```
+
+```{r}
+model_tdI <- aov_car(
+  value ~ modpob * MR * N + Error(ID/method), #error para medidas repetidas
+  data = df_tdeI_bayes_long,
+  factorize = FALSE,
+  anova_table = list(es = "pes")
+)
+
+summary(model_tdI)
+```
+
+```{r}
+res.aov_tdeI <- anova_test(
+  data = df_tdeI_bayes_long,
+  dv = value,
+  wid = ID,
+  within = method,
+  between = c(modpob, MR, N),
+  type = 3,
+  effect.size = "pes"
+)
+
+get_anova_table(res.aov_tdeI)
+
+# Duda: en Resultados hablamos de los resultados del ANOVA de tres factores inter-sujetos (TE, MR y N), pero en la sintaxis también aparece "modpob".Aquí, además, tenemos que quitar "TE" (sólo tiene un nivel, 0)
+
+#Los tamaños del efecto coinciden exactamente con los reportados en la
+#primera sección (partial eta square 0.0000; aqui igual).
+```
+
+## 1.3. Análisis de la proporción de modelos correctamente seleccionados por los métodos bayesianos
+
+### Pre-procesamiento
+
+Aquí utilizamos toda la muestra, sin filtros. Lo hacemos por un lado con WAIC y
+otro con LOO para ver si hay diferencias.
+
+#### WAIC
+
+```{r}
+df_seleccion_WAIC <- df |> select(ID, starts_with("sel_b"), modpob, TE, MR, N)
+df_seleccion_WAIC
+```
+
+```{r}
+df_seleccion_WAIC_long <- df_seleccion_WAIC |> 
+  gather(key = "method", value = "value", sel_bnormal1, sel_bnormal2, sel_bnormal3, sel_bcauchy1, sel_bcauchy2, sel_bcauchy3, sel_bunif) |> 
+  convert_as_factor(ID, method, modpob, TE, MR, N)
+
+df_seleccion_WAIC_long
+```
+
+#### LOO
+
+```{r}
+df_seleccion_LOO <- df |> select(ID, starts_with("loo_"), modpob, TE, MR, N)
+df_seleccion_LOO
+```
+
+```{r}
+df_seleccion_LOO_long <- df_seleccion_LOO |> 
+  gather(key = "method", value = "value", LOO_bn1, LOO_bn2, LOO_bn3, LOO_bc1, LOO_bc2, LOO_bc3, LOO_unif) |> 
+  convert_as_factor(ID, method, modpob, TE, MR, N)
+
+df_seleccion_LOO_long
+```
+
+### Análisis estadístico
+
+#### WAIC
+
+```{r}
+df_seleccion_WAIC_long |> 
+  group_by(method) |> 
+  get_summary_stats(value, type = "mean_sd")
+
+# No coincide exactamente con los valores de la tabla 3.1. (Tasa de acierto (selección del modelo) aunque los valores son muy parecidos.
+```
+
+```{r}
+df_seleccion_WAIC_long |> 
+  group_by(method) |> 
+  identify_outliers(value)
+
+#Hay 91824 outliers
+```
+
+```{r}
+model_SELwaic <- aov_car(
+  value ~ modpob * MR * N + Error(ID/method), #error para medidas repetidas
+  data = df_seleccion_WAIC_long,
+  factorize = FALSE,
+  anova_table = list(es = "pes")
+)
+
+summary(model_SELwaic)
+```
+
+```{r}
+res.aov_sel.waic <- anova_test(
+  data = df_seleccion_WAIC_long,
+  dv = value,
+  wid = ID,
+  within = method,
+  between = c(modpob, TE, MR, N),
+  type = 3,
+  effect.size = "pes"
+)
+
+get_anova_table(res.aov_sel.waic)
+# No coinciden exactamente, pero sí están en torno a los mismos valores (y no existirían por tanto diferencias:
+# bayesianos (F(6; 428316) = 1,361; p = 0,226; η 2 parcial = 0, 000 en el texto).
+```
+
+#### LOO
+
+```{r}
+df_seleccion_LOO_long |> 
+  group_by(method) |> 
+  get_summary_stats(value, type = "mean_sd")
+
+# Dan cifras más altas que con WAIC; sigue sin coincidir con el texto, pero van en el mismo sentido (no hay muchas diferencias).
+```
+
+```{r}
+df_seleccion_LOO_long |> 
+  group_by(method) |> 
+  identify_outliers(value)
+
+#Hay 89313 outliers
+```
+
+```{r}
+res.aov_sel.loo <- anova_test(
+  data = df_seleccion_LOO_long,
+  dv = value,
+  wid = ID,
+  within = method,
+  between = c(modpob, TE, MR, N),
+  type = 3,
+  effect.size = "pes"
+)
+
+get_anova_table(res.aov_sel.loo)
+# No coinciden exactamente, pero sí están en torno a los mismos valores (y no existirían por tanto diferencias:
+# bayesianos (F(6; 428316) = 1,361; p = 0,226; η 2 parcial = 0, 000 en el texto).
+```
+
+Tras contrastar el análisis de sensibilidad y comprobar que no hay grandes dife-
+rencias entre las diferentes combinaciones de distribuciones previas, decidimos
+seguir el análisis como método bayesiano los resultados de la simulación
+establecidos por la cauchy 0, 10.
+
+#2. Evaluar el rendimiento de la selección del modelo.
+
+Se crean cuatro variables politómicas, una por cada índice de ajuste relativo
+empleado, que registran el modelo que selecciona cada índice (cuántas veces
+escogen el maximal, los parciales y el minimal)
+
+```{r}
+#TODO: no tengo muy claro cómo explicar esto.
+```
+
+## WAIC
+
+### ¿Qué modelo selecciona cauchy 1?
+
+```{r}
+selec_WAIC <- data_WAIC |> 
+  mutate(
+    MODELO_SELECCIONADO_C1 = case_when(
+      (max_WAIC_c1_brms < int_WAIC_c1_brms) & (max_WAIC_c1_brms <  slop_WAIC_c1_brms) & (max_WAIC_c1_brms <  min_WAIC_brms) ~ 3, #maximal
+      (slop_WAIC_c1_brms < max_WAIC_c1_brms) & (slop_WAIC_c1_brms < int_WAIC_c1_brms) & (slop_WAIC_c1_brms <  min_WAIC_brms) ~ 2, #slopes
+      (int_WAIC_c1_brms < max_WAIC_c1_brms) & (int_WAIC_c1_brms <  slop_WAIC_c1_brms) & (int_WAIC_c1_brms <  min_WAIC_brms) ~ 1, #intercepts
+      (min_WAIC_brms < max_WAIC_c1_brms) & (min_WAIC_brms < int_WAIC_c1_brms) & (min_WAIC_brms < slop_WAIC_c1_brms) ~ 0, #minimal
+    ),
+    MODELO_SELECCIONADO_C1 = factor(
+      x = MODELO_SELECCIONADO_C1,
+      levels = c("0", "1", "2", "3"),
+      labels = c("Minimal", "Parcial - intersecciones", "Parcial - pendientes", "Maximal")
+    )
+  ) |> select(ID, modpob, TE, MR, N, MODELO_SELECCIONADO_C1)
+
+selec_WAIC
+```
+
+Para ver un análisis cualitativo de los errores de selección de modelo por
+cauchy 1, utilizamos la variable "selección correcta del modelo (sel_bcauchy1)"
+como filtro y exploramos las frecuencias de la variable
+"MODELO_SELECCIONADO_C1". Para ello juntamos ambas en un dataset llamado WAIC.
+
+```{r}
+WAIC <- selec_WAIC |> left_join(selecciones_WAIC |> select(sel_bcauchy1, ID, modpob, TE, MR, N))
+```
+
+```{r}
+error_WAIC <- WAIC |> filter(sel_bcauchy1 == 0) |> select(ID, modpob, TE, MR, N, MODELO_SELECCIONADO_C1)
+
+error_WAIC
+```
+
+```{r}
+error_WAIC <- error_WAIC |> 
+  count(MODELO_SELECCIONADO_C1) |> 
+  mutate(percent = n / sum(n)*100)
+
+error_WAIC
+
+error_WAIC |> 
+  ggplot(aes(x = MODELO_SELECCIONADO_C1, y = percent)) +
+  geom_bar(stat = "identity", fill = wes_palette("Darjeeling1")[4:1] ) +
+  geom_text(aes(label = paste0(round(percent, 1), "%")), vjust = -0.5, size = 4) +
+  labs(
+    title = "Distribución de errores en la selección del modelo por WAIC",
+    x = "Modelo seleccionado cuando la decisión es incorrecta",
+    y = "Porcentaje",
+    caption = "Nota: Distribución de frecuencias filtrando por la selección incorrecta del índice de ajuste relativo"
+  ) +
+  ylim(0, 100) +
+  theme_minimal()
+
+```
+
+## LOO
+
+### ¿Qué modelo selecciona cauchy 1?
+
+```{r}
+selec_LOO <- data_LOO |> 
+  mutate(
+    MODELO_SELECCIONADO_C1_loo = case_when(
+      (max_LOO_c1_brms < int_LOO_c1_brms) & (max_LOO_c1_brms <  slop_LOO_c1_brms) & (max_LOO_c1_brms <  min_LOO_brms) ~ 3, #maximal
+      (slop_LOO_c1_brms < max_LOO_c1_brms) & (slop_LOO_c1_brms < int_LOO_c1_brms) & (slop_LOO_c1_brms <  min_LOO_brms) ~ 2, #slopes
+      (int_LOO_c1_brms < max_LOO_c1_brms) & (int_LOO_c1_brms <  slop_LOO_c1_brms) & (int_LOO_c1_brms <  min_LOO_brms) ~ 1, #intercepts
+      (min_LOO_brms < max_LOO_c1_brms) & (min_LOO_brms < int_LOO_c1_brms) & (min_LOO_brms < slop_LOO_c1_brms) ~ 0, #minimal
+    ),
+    MODELO_SELECCIONADO_C1_loo = factor(
+      x = MODELO_SELECCIONADO_C1_loo,
+      levels = c("0", "1", "2", "3"),
+      labels = c("Minimal", "Parcial - intersecciones", "Parcial - pendientes", "Maximal")
+    )
+  ) |> select(ID, modpob, TE, MR, N, MODELO_SELECCIONADO_C1_loo)
+
+selec_LOO
+```
+
+Para ver un análisis cualitativo de los errores de selección de modelo por
+cauchy 1, utilizamos la variable "selección correcta del modelo (sel_bcauchy1)"
+como filtro y exploramos las frecuencias de la variable
+"MODELO_SELECCIONADO_C1". Para ello juntamos ambas en un dataset llamado WAIC.
+
+```{r}
+LOO <- selec_LOO |> left_join(selecciones_LOO |> select(LOO_bc1, ID, modpob, TE, MR, N))
+```
+
+```{r}
+error_LOO <- LOO |> filter(LOO_bc1 == 0) |> select(ID, modpob, TE, MR, N, MODELO_SELECCIONADO_C1_loo)
+
+error_LOO
+```
+
+```{r}
+error_LOO <- error_LOO |> 
+  count(MODELO_SELECCIONADO_C1_loo) |> 
+  mutate(percent = n / sum(n)*100)
+
+error_LOO
+
+error_LOO |> 
+  ggplot(aes(x = MODELO_SELECCIONADO_C1_loo, y = percent)) +
+  geom_bar(stat = "identity", fill = wes_palette("Darjeeling1")[4:1]) +
+  geom_text(aes(label = paste0(round(percent, 1), "%")), vjust = -0.5, size = 4) +
+  labs(
+    title = "Distribución de errores en la selección del modelo por LOO",
+    x = "Modelo seleccionado cuando la decisión es incorrecta",
+    y = "Porcentaje",
+    caption = "Nota: Distribución de frecuencias filtrando por la selección incorrecta del índice de ajuste relativo"
+  ) +
+  ylim(0, 100) +
+  theme_minimal()
+```
+
+## AIC
+
+### ¿Qué modelo selecciona AIC?
+
+```{r}
+selec_AIC <- data_AIC |> 
+  mutate(
+    MODELO_SELECCIONADO_AIC = case_when(
+      (max_AIC < int_AIC) & (max_AIC <  slop_AIC) & (max_AIC <  min_AIC) ~ 3, #maximal
+      (slop_AIC < max_AIC) & (slop_AIC < int_AIC) & (slop_AIC <  min_AIC) ~ 2, #slopes
+      (int_AIC < max_AIC) & (int_AIC <  slop_AIC) & (int_AIC <  min_AIC) ~ 1, #intercepts
+      (min_AIC < max_AIC) & (min_AIC < int_AIC) & (min_AIC < slop_AIC) ~ 0, #minimal
+    ),
+    MODELO_SELECCIONADO_AIC = factor(
+      x = MODELO_SELECCIONADO_AIC,
+      levels = c("0", "1", "2", "3"),
+      labels = c("Minimal", "Parcial - intersecciones", "Parcial - pendientes", "Maximal")
+    )
+  ) |> select(ID, modpob, TE, MR, N, MODELO_SELECCIONADO_AIC)
+
+selec_AIC
+```
+
+Para ver un análisis cualitativo de los errores de selección de modelo por la
+perspectiva frecuentista (AIC) utilizamos la variable "selección correcta del
+modelo (sel_lmerAIC)" como filtro y exploramos las frecuencias de la variable
+"MODELO_SELECCIONADO_AIC". Para ello juntamos ambas en un dataset llamado AIC.
+
+```{r}
+AIC <- selec_AIC |> left_join(seleccion_AIC |> select(sel_lmerAIC, ID, modpob, TE, MR, N))
+```
+
+```{r}
+error_AIC <- AIC |> filter(sel_lmerAIC == 0) |> select(ID, modpob, TE, MR, N, MODELO_SELECCIONADO_AIC)
+
+error_AIC
+```
+
+```{r}
+error_AIC <- error_AIC |> 
+  count(MODELO_SELECCIONADO_AIC) |> 
+  mutate(percent = n / sum(n)*100)
+
+error_AIC
+
+error_AIC |> 
+  ggplot(aes(x = MODELO_SELECCIONADO_AIC, y = percent)) +
+  geom_bar(stat = "identity", fill = wes_palette("Darjeeling1")[4:1] ) +
+  geom_text(aes(label = paste0(round(percent, 1), "%")), vjust = -0.5, size = 4) +
+  labs(
+    title = "Distribución de errores en la selección del modelo por AIC",
+    x = "Modelo seleccionado cuando la decisión es incorrecta",
+    y = "Porcentaje",
+    caption = "Nota: Distribución de frecuencias filtrando por la selección incorrecta del índice de ajuste relativo"
+  ) +
+  ylim(0, 100) +
+  theme_minimal()
+```
+
+## BIC
+
+### ¿Qué modelo selecciona BIC?
+
+```{r}
+selec_BIC <- data_BIC |> 
+  mutate(
+    MODELO_SELECCIONADO_BIC = case_when(
+      (max_BIC < int_BIC) & (max_BIC <  slop_BIC) & (max_BIC <  min_BIC) ~ 3, #maximal
+      (slop_BIC < max_BIC) & (slop_BIC < int_BIC) & (slop_BIC <  min_BIC) ~ 2, #slopes
+      (int_BIC < max_BIC) & (int_BIC <  slop_BIC) & (int_BIC <  min_BIC) ~ 1, #intercepts
+      (min_BIC < max_BIC) & (min_BIC < int_BIC) & (min_BIC < slop_BIC) ~ 0, #minimal
+    ),
+    MODELO_SELECCIONADO_BIC = factor(
+      x = MODELO_SELECCIONADO_BIC,
+      levels = c("0", "1", "2", "3"),
+      labels = c("Minimal", "Parcial - intersecciones", "Parcial - pendientes", "Maximal")
+    )
+  ) |> select(ID, modpob, TE, MR, N, MODELO_SELECCIONADO_BIC)
+
+selec_BIC
+```
+
+Para ver un análisis cualitativo de los errores de selección de modelo por la
+perspectiva frecuentista (BIC) utilizamos la variable "selección correcta del
+modelo (sel_lmerBIC)" como filtro y exploramos las frecuencias de la variable
+"MODELO_SELECCIONADO_BIC". Para ello juntamos ambas en un dataset llamado BIC.
+
+```{r}
+BIC <- selec_BIC |> left_join(seleccion_BIC |> select(sel_lmerBIC, ID, modpob, TE, MR, N))
+```
+
+```{r}
+error_BIC <- BIC |> filter(sel_lmerBIC == 0) |> select(ID, modpob, TE, MR, N, MODELO_SELECCIONADO_BIC)
+
+error_BIC
+```
+
+```{r}
+error_BIC <- error_BIC |> 
+  count(MODELO_SELECCIONADO_BIC) |> 
+  mutate(percent = n / sum(n)*100)
+
+error_BIC
+
+error_BIC |> 
+  ggplot(aes(x = MODELO_SELECCIONADO_BIC, y = percent)) +
+  geom_bar(stat = "identity", fill = wes_palette("Darjeeling1")[4:1] ) +
+  geom_text(aes(label = paste0(round(percent, 1), "%")), vjust = -0.5, size = 4) +
+  labs(
+    title = "Distribución de errores en la selección del modelo por BIC",
+    x = "Modelo seleccionado cuando la decisión es incorrecta",
+    y = "Porcentaje",
+    caption = "Nota: Distribución de frecuencias filtrando por la selección incorrecta del índice de ajuste relativo"
+  ) +
+  ylim(0, 100) +
+  theme_minimal()
+```
+
+## Visualización conjunta
+
+```{r}
+error_AIC <- error_AIC |> 
+  rename(
+    MODELO_SELECCIONADO = MODELO_SELECCIONADO_AIC
+  )
+
+error_BIC <- error_BIC |> 
+  rename(
+    MODELO_SELECCIONADO = MODELO_SELECCIONADO_BIC
+  )
+
+error_WAIC <- error_WAIC |> 
+  rename(
+    MODELO_SELECCIONADO = MODELO_SELECCIONADO_C1
+  )
+
+error_LOO <- error_LOO |> 
+  rename(
+    MODELO_SELECCIONADO = MODELO_SELECCIONADO_C1_loo
+  )
+
+error_AIC$index <- "AIC"
+error_BIC$index <- "BIC"
+error_WAIC$index <- "WAIC"
+error_LOO$index <- "LOO"
+
+
+errors <- bind_rows(error_AIC, error_BIC, error_WAIC, error_LOO)
+
+ggplot(errors, aes(x = MODELO_SELECCIONADO, y = percent, fill = index)) +
+  geom_bar(stat = "identity", position = "dodge") +
+   geom_text(aes(label = sprintf("%.1f%%", percent)),
+            position = position_dodge(width = 0.9), vjust = -0.5, size = 3) +
+  labs(title = "Distribución de errores en la selección del modelo por los diferentes índices utilizados",
+       x = "Modelo seleccionado",
+       y = "Porcentaje") +
+  scale_fill_manual(values = wes_palette("Darjeeling1")[4:1]) +
+  ylim(0, 100) +
+  theme_minimal()
+
+
+ggplot(errors, aes(x = index, y = percent, fill = MODELO_SELECCIONADO)) +
+  geom_bar(stat = "identity", position = "dodge") +
+   geom_text(aes(label = sprintf("%.1f%%", percent)),
+            position = position_dodge(width = 0.9), vjust = -0.5, size = 3) +
+  labs(title = "Distribución de errores en la selección del modelo por los diferentes índices utilizados",
+       x = "Índice de ajuste relativo",
+       y = "Porcentaje",
+       fill = "Modelo seleccionado \n(equívocamente)") +
+  scale_fill_manual(values = wes_palette("Darjeeling1")[4:1]) +
+  ylim(0, 100) +
+  theme_minimal()
+
+#TODO: ¿Hay alguna manera de ver la comparación de errores - es decir, es más común que seleccione el maximal el WAIC frente a una de las opciones correctas?)
+#
+
+ggsave(
+  filename = "plot_errores.svg",
+  plot = last_plot(),
+  device = "svg",
+  width = 8,
+  height = 6,
+  units = "in"
+)
+
+```
+
+```{r}
+#Frecuencias absolutas
+error_AIC <- error_AIC |> 
+  rename(MODELO_SELECCIONADO = MODELO_SELECCIONADO_AIC)
+
+error_BIC <- error_BIC |> 
+  rename(MODELO_SELECCIONADO = MODELO_SELECCIONADO_BIC)
+
+error_WAIC <- error_WAIC |> 
+  rename(MODELO_SELECCIONADO = MODELO_SELECCIONADO_C1)
+
+error_LOO <- error_LOO |> 
+  rename(MODELO_SELECCIONADO = MODELO_SELECCIONADO_C1_loo)
+
+# Añadir una columna 'index' para cada índice de ajuste relativo
+error_AIC$index <- "AIC"
+error_BIC$index <- "BIC"
+error_WAIC$index <- "WAIC"
+error_LOO$index <- "LOO"
+
+# Unir todos los dataframes en uno solo
+errors <- bind_rows(error_AIC, error_BIC, error_WAIC, error_LOO)
+
+# Calcular la frecuencia absoluta para cada combinación de 'MODELO_SELECCIONADO' e 'index'
+errors_count <- errors %>%
+  group_by(MODELO_SELECCIONADO, index) %>%
+  summarise(frequency = n(), .groups = "drop")
+
+# Gráfico de barras con frecuencia absoluta (por 'MODELO_SELECCIONADO')
+ggplot(errors_count, aes(x = MODELO_SELECCIONADO, y = frequency, fill = index)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_text(aes(label = sprintf("%d", frequency)),
+            position = position_dodge(width = 0.9), vjust = -0.5, size = 3) +
+  labs(title = "Distribución de errores en la selección del modelo por los diferentes índices utilizados",
+       x = "Modelo seleccionado",
+       y = "Frecuencia absoluta") +
+  scale_fill_manual(values = wes_palette("Darjeeling1")[4:1]) +
+  theme_minimal()
+
+# Gráfico de barras con frecuencia absoluta (por 'index')
+ggplot(errors_count, aes(x = index, y = frequency, fill = MODELO_SELECCIONADO)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_text(aes(label = sprintf("%d", frequency)),
+            position = position_dodge(width = 0.9), vjust = -0.5, size = 3) +
+  labs(title = "Distribución de errores en la selección del modelo por los diferentes índices utilizados",
+       x = "Índice de ajuste relativo",
+       y = "Frecuencia absoluta",
+       fill = "Modelo seleccionado \n(equívocamente)") +
+  scale_fill_manual(values = wes_palette("Darjeeling1")[4:1]) +
+  theme_minimal()
+
+# Guardar el gráfico como archivo .svg
+ggsave(
+  filename = "plot_errores.svg",
+  plot = last_plot(),
+  device = "svg",
+  width = 8,
+  height = 6,
+  units = "in"
+)
+```
+
+## ¿Hay diferencias en la selección del modelo correcto en función de las condiciones simuladas?
+
+### Pre-procesamiento
+
+Tendremos que transformar el dataframe a formato 'long'. Queremos obtener una
+única variable (método bayesiano) y que cada nivel de la variable intra-sujeto
+sea cada una de los métodos de estimación obtenidos.
+
+```{r}
+df_seleccion_long <- df |> select(sel_lmerAIC, sel_lmerBIC, sel_bcauchy1, LOO_bc1, ID, modpob, TE, MR, N) |> 
+  gather(key = "Index", value = "value", sel_lmerAIC, sel_lmerBIC, sel_bcauchy1, LOO_bc1) |> 
+  convert_as_factor(ID, Index,modpob)
+```
+
+### Análisis estadístico
+
+```{r}
+df_seleccion_long |> 
+  group_by(Index) |> 
+  get_summary_stats(value, type = "mean_sd")
+
+```
+
+```{r}
+#Interacción índice x modelo poblacional
+df_seleccion_long |> 
+  group_by(Index, modpob) |> 
+  get_summary_stats(value, type = "mean_sd")
+
+```
+
+```{r}
+#Interacción índice x TE
+df_seleccion_long |> 
+  group_by(Index, TE) |> 
+  get_summary_stats(value, type = "mean_sd")
+
+```
+
+```{r}
+#Interacción índice x N
+df_seleccion_long |> 
+  group_by(Index, N) |> 
+  get_summary_stats(value, type = "mean_sd")
+
+```
+
+```{r}
+#Interacción índice x MR
+df_seleccion_long |> 
+  group_by(Index, MR) |> 
+  get_summary_stats(value, type = "mean_sd")
+
+```
+
+```{r}
+df_seleccion_long |> 
+  group_by(Index) |> 
+  identify_outliers(value)
+
+#Hay 43430 outliers
+```
+
+```{r}
+res.aov <- anova_test(
+  data = df_seleccion_long,
+  dv = value,
+  wid = ID,
+  within = Index,
+  between = c(modpob, TE, MR, N),
+  type = 3,
+  effect.size = "pes"
+)
+
+get_anova_table(res.aov)
+# Nos interesan sobre todo las interacciones (o las medias):
+# -- modpob*index: modpob:Index  4.93 117212.5 2883.846  0.00e+00     * 0.1080000
+# -- n*index: N:Index  3.28 117212.5  213.470 8.10e-151     * 0.0060000
+# -- MR*index:  MR:Index  4.93 117212.5   88.849  2.84e-92     * 0.0040000
+# -- TE*Index: no significativa TE:Index  3.28 117212.5    2.217  7.80e-02       0.0000621
+```
+
+```{r}
+#Otra opción
+
+
+df_seleccion_long <- as_tibble(df_seleccion_long)
+
+aov_results_obj2 <- aov_ez(
+  id = "ID",
+  dv = "value", # combinación de sel_lmerAIC, sel_lmerBIC, sel_bcauchy1, LOO_bc1
+  data = df_seleccion_long, # datos en formato long,
+  within = "Index", # Factor intra: BIC, AIC, WAIC, LOO
+  between = c("modpob", "TE", "MR", "N"), # Factores intra
+  type = 3
+)
+
+summary(aov_results_obj2)
+
+effectsize::eta_squared(aov_results_obj2)
+
+#afex_plot(aov_results_obj2, x = "modpob", trace = "Index")
+
+
+# Estimated Marginal Means (EMMs) for interactions
+emmeans_results_modpob <- emmeans(aov_results_obj2, ~ modpob * Index)
+emmeans_results_N <- emmeans(aov_results_obj2, ~ N * Index)
+emmeans_results_MR <- emmeans(aov_results_obj2, ~ MR * Index)
+
+# Display EMM results
+summary(emmeans_results_modpob)
+summary(emmeans_results_N)
+summary(emmeans_results_MR)
+
+#Visualization
+
+emmeans_results_modpob_df <- as_tibble(emmeans_results_modpob)
+
+ggplot(
+  data = emmeans_results_modpob_df,
+  aes(x = modpob, y = emmean, group = Index, color = Index)) +
+  geom_line(size = 1) + #Add lines for each Index
+  geom_point(size = 3) + # Add points at each Mean
+  labs(
+    title = "Proporción de aciertos de cada índice de ajuste relativo según el modelo poblacional",
+    x = "Modelo poblacional",
+    y = "Medias marginales estimadas",
+    color = "Índice de ajuste relativo"
+  ) +
+  ylim(0.00, 1.00) +
+  scale_color_manual(
+    values = wes_palette("Darjeeling1")[c(1, 2, 4, 5)],
+    labels = c("LOO", "WAIC", "AIC", "BIC")) + # Custom colors
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 12, face = "bold"),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 10),
+    legend.title = element_text(size = 8),
+    legend.text = element_text(size = 8),
+    #panel.grid.major.x = element_line(color = 'grey80', size = 0.1),  # Remove vertical gridlines
+    #panel.grid.major.y = element_line(color = "grey80", size = 0.5)
+  )
+
+ggsave("plot_obj2.svg", plot = last_plot(), device = "svg", width = 8, height = 6)
+
+```
+
+# 3. Potencia y tasa de error tipo I condicionada a la selección del modelo
+
+Se trata de crear una variable por cada índice de ajuste (WAIC, LOO, AIC, BIC)
+que señale si la selección del moedelo ha sido la correcta (cuatro variables
+dicotómicas) teniendo en cuenta el modelo seleccionado por el índice y los
+valores criterio. Por ejemplo, para ver si el modelo minimal se ha seleccionado
+correctamente, tiene que coincidir que el modelo seleccionado sea el minimal y
+que al mismo tiempo, se cumpla que el efecto de la intervención para el modelo
+seleccionado (en este ejemplo, el minimal) no contenga el 0 - es decir, la
+ausencia de efecto.
+
+```{r}
+data_obj3 <- data |> left_join(selec_WAIC)
+data_obj3 <- data_obj3 |> left_join(selec_LOO)
+data_obj3 <- data_obj3 |> left_join(selec_AIC)
+data_obj3 <- data_obj3 |> left_join(selec_BIC)
+```
+
+```{r}
+data_obj3 <- data_obj3 |> 
+  mutate(
+    decision_WAIC_cond = case_when(
+      MODELO_SELECCIONADO_C1 == "Minimal" & (min_g10_li_brms > 0 | min_g10_ls_brms < 0) ~ 1, #correcto: se ha seleccionado el minimal y el efecto de la intervención no contiene el 0
+      MODELO_SELECCIONADO_C1 == "Minimal" & (min_g10_li_brms <= 0 & min_g10_ls_brms >= 0) ~ 0, #incorrecto: se ha seleccionado el minimal y el efecto de la intervención contiene el 0
+      
+      MODELO_SELECCIONADO_C1 == "Parcial - intersecciones" & (int_g10_li_c1_brms > 0 | int_g10_ls_c1_brms < 0) ~ 1,
+      MODELO_SELECCIONADO_C1 == "Parcial - intersecciones" & (int_g10_li_c1_brms <= 0 & int_g10_ls_c1_brms >= 0) ~ 0,
+      
+      MODELO_SELECCIONADO_C1 == "Parcial - pendientes" & (slop_g10_li_c1_brms > 0 | slop_g10_ls_c1_brms < 0) ~ 1,
+      MODELO_SELECCIONADO_C1 == "Parcial - pendientes" & (slop_g10_li_c1_brms <= 0 & slop_g10_ls_c1_brms >= 0) ~ 0,
+      
+      MODELO_SELECCIONADO_C1 == "Maximal" & (max_g10_li_c1_brms > 0 | max_g10_ls_c1_brms < 0) ~ 1,
+      MODELO_SELECCIONADO_C1 == "Maximal" & (max_g10_li_c1_brms <= 0 & max_g10_ls_c1_brms >= 0) ~ 0
+    ),
+    
+    
+    decision_LOO_cond = case_when(
+      MODELO_SELECCIONADO_C1_loo == "Minimal" & (min_g10_li_brms > 0 | min_g10_ls_brms < 0) ~ 1, #correcto: se ha seleccionado el minimal y el efecto de la intervención no contiene el 0
+      MODELO_SELECCIONADO_C1_loo == "Minimal" & (min_g10_li_brms <= 0 & min_g10_ls_brms >= 0) ~ 0, #incorrecto: se ha seleccionado el minimal y el efecto de la intervención contiene el 0
+      
+      MODELO_SELECCIONADO_C1_loo == "Parcial - intersecciones" & (int_g10_li_c1_brms > 0 | int_g10_ls_c1_brms < 0) ~ 1,
+      MODELO_SELECCIONADO_C1_loo == "Parcial - intersecciones" & (int_g10_li_c1_brms <= 0 & int_g10_ls_c1_brms >= 0) ~ 0,
+      
+      MODELO_SELECCIONADO_C1_loo == "Parcial - pendientes" & (slop_g10_li_c1_brms > 0 | slop_g10_ls_c1_brms < 0) ~ 1,
+      MODELO_SELECCIONADO_C1_loo == "Parcial - pendientes" & (slop_g10_li_c1_brms <= 0 & slop_g10_ls_c1_brms >= 0) ~ 0,
+      
+      MODELO_SELECCIONADO_C1_loo == "Maximal" & (max_g10_li_c1_brms > 0 | max_g10_ls_c1_brms < 0) ~ 1,
+      MODELO_SELECCIONADO_C1_loo == "Maximal" & (max_g10_li_c1_brms <= 0 & max_g10_ls_c1_brms >= 0) ~ 0
+    ),
+    
+    decision_AIC_cond = case_when(
+      MODELO_SELECCIONADO_AIC == "Minimal" & min_g10_pval_lmer < 0.05 ~ 1,
+      MODELO_SELECCIONADO_AIC == "Minimal" & min_g10_pval_lmer >= 0.05 ~ 0,
+      
+      MODELO_SELECCIONADO_AIC == "Parcial - intersecciones" & int_g10_pval_lmer < 0.05 ~ 1,
+      MODELO_SELECCIONADO_AIC == "Parcial - intersecciones" & int_g10_pval_lmer >= 0.05 ~ 0,
+      
+      MODELO_SELECCIONADO_AIC == "Parcial - pendientes" & slop_g10_pval_lmer < 0.05 ~ 1,
+      MODELO_SELECCIONADO_AIC == "Parcial - pendientes" & slop_g10_pval_lmer >= 0.05 ~ 0,
+      
+      MODELO_SELECCIONADO_AIC == "Maximal" & max_g10_pval_lmer < 0.05 ~ 1,
+      MODELO_SELECCIONADO_AIC == "Maximal" & max_g10_pval_lmer >= 0.05 ~ 0
+    ),
+    
+    decision_BIC_cond = case_when(
+      MODELO_SELECCIONADO_BIC == "Minimal" & min_g10_pval_lmer < 0.05 ~ 1,
+      MODELO_SELECCIONADO_BIC == "Minimal" & min_g10_pval_lmer >= 0.05 ~ 0,
+      
+      MODELO_SELECCIONADO_BIC == "Parcial - intersecciones" & int_g10_pval_lmer < 0.05 ~ 1,
+      MODELO_SELECCIONADO_BIC == "Parcial - intersecciones" & int_g10_pval_lmer >= 0.05 ~ 0,
+      
+      MODELO_SELECCIONADO_BIC == "Parcial - pendientes" & slop_g10_pval_lmer < 0.05 ~ 1,
+      MODELO_SELECCIONADO_BIC == "Parcial - pendientes" & slop_g10_pval_lmer >= 0.05 ~ 0,
+      
+      MODELO_SELECCIONADO_BIC == "Maximal" & max_g10_pval_lmer < 0.05 ~ 1,
+      MODELO_SELECCIONADO_BIC == "Maximal" & max_g10_pval_lmer >= 0.05 ~ 0
+    )
+  ) |> select(ID, modpob, TE, MR, N, decision_WAIC_cond, decision_LOO_cond, decision_AIC_cond, decision_BIC_cond)
+
+```
+
+```{r}
+data_obj3 |> summary()
+```
+
+## Potencia condicionada a la selección del modelo
+
+Para analizar la potencia condicionada a la selección del modelo, tenemos que
+realizar un ANOVA de medidas repetidas sobre las decisiones condicionadas, todo
+ello con el filtro de "TE \> 0" (porque si no hay un efecto que detectar, la
+potencia pierde un poco el sentido teórico).
+
+```{r}
+data_obj3_filtered <- data_obj3 |> filter(TE > 0)
+
+data_obj3
+data_obj3_filtered
+```
+
+```{r}
+data_obj3_filtered_long <- data_obj3_filtered |> 
+  gather (key = "Index", value = "value", decision_WAIC_cond, decision_LOO_cond, decision_AIC_cond, decision_BIC_cond) |> 
+  convert_as_factor(ID, Index)
+
+head(data_obj3_filtered_long)
+```
+
+```{r}
+data_obj3_filtered_long |> 
+  group_by(Index) |> 
+  get_summary_stats(value, type = "mean_sd")
+```
+
+```{r}
+# ’modelo
+# poblacional x tamaño del efecto x método de estimación’.
+
+data_obj3_filtered_long |> 
+  group_by(Index, modpob, TE) |> 
+  get_summary_stats(value, type = "mean_sd")
+```
+
+```{r}
+#Visualización gráfica de la triple interacción
+# Datos agrupados por la interacción y con medias y desviaciones típicas
+summary_data <- data_obj3_filtered_long %>%
+  group_by(Index, modpob, TE) %>%
+  summarise(mean_value = mean(value, na.rm = TRUE),
+            sd_value = sd(value, na.rm = TRUE),
+            .groups = "drop")
+
+# Graficar la interacción para cada índice por separado
+ggplot(summary_data, aes(x = factor(modpob, levels = c(0, 1, 2, 3)), y = mean_value, color = factor(TE))) +
+  geom_line(aes(group = TE), size = 1) +
+  geom_point(size = 3) +
+  facet_wrap(~Index, ncol = 1, labeller = labeller(Index = c(
+    "decision_BIC_cond" = "BIC (Frequentist)",
+    "decision_AIC_cond" = "AIC (Frequentist)",
+    "decision_WAIC_cond" = "WAIC (Bayesian)",
+    "decision_LOO_cond" = "LOO (Bayesian)"
+  ))) +
+  labs(
+    title = "Effects of Triple Interaction: Population Model, Effect Size, and Relative Fit Index on Conditioned Power",
+    x = "Population Model",
+    y = "Estimated Marginal Means",
+    color = "Effect Size (ES)"
+  ) +
+  scale_color_manual(values = wes_palette("Darjeeling1")[c(1, 2)], labels = c("1.15", "2.70")) +
+  scale_x_discrete(labels = c("Minimal", "Partial intercepts", "Partial Slopes", "Maximal")) +
+  theme_minimal() +
+  theme(
+    strip.text = element_text(size = 10, face = "bold"),
+    plot.title = element_text(hjust = 0.5, size = 10, face = "bold"),
+    axis.text = element_text(size = 8),
+    axis.title = element_text(size = 10),
+    legend.title = element_text(size = 10),
+    legend.text = element_text(size = 8)
+  )
+
+ggsave("triple_interaction_plot_customized.svg", width = 8, height = 10, device = "svg")
+
+```
+
+```{r}
+res.aov_potencia_ob3 <- anova_test(
+  data = data_obj3_filtered_long,
+  dv = value,
+  wid = ID,
+  within = Index,
+  between = c(modpob, TE, MR, N),
+  type = 3,
+  effect.size = "pes"
+)
+
+get_anova_table(res.aov_potencia_ob3)
+
+
+#modpob TE MR N modpob*TE modpob*MR modpob*N TE*MR TE*N MR*N modpob*TE*MR modpob*TE*N 
+#modpob*MR*N TE*MR*N modpob*TE*MR*N
+```
+
+```{r}
+#otra opción
+#decision_WAIC_cond, decision_LOO_cond, decision_AIC_cond, decision_BIC_cond
+aov_power_3 <- aov_ez(
+  id = "ID",                  # Unique subject identifier
+  dv = "value",               # Dependent variable
+  data = data_obj3_filtered_long,                # Data frame
+  within = "Index",          # Within-subjects factor
+  between = c("modpob", "TE", "MR", "N"),  # Between-subjects factors
+  type = 3,                   # Type III sum of squares
+  detailed = TRUE             # Get detailed output
+)
+
+aov_power_3
+effectsize::eta_squared(aov_power_3)
+```
+
+## Tasa de error tipo I condicionada a la selección del modelo
+
+Tenemos que filtrar por aquellos casos en los que no haya efecto:
+
+```{r}
+data_obj3_filtered_tdeI <- data_obj3 |> filter(TE == 0)
+
+data_obj3
+data_obj3_filtered_tdeI
+```
+
+```{r}
+data_obj3_filtered_tdeI_long <- data_obj3_filtered_tdeI |> 
+  gather (key = "Index", value = "value", decision_WAIC_cond, decision_LOO_cond, decision_AIC_cond, decision_BIC_cond) |> 
+  convert_as_factor(ID, Index)
+
+head(data_obj3_filtered_tdeI_long)
+```
+
+```{r}
+data_obj3_filtered_tdeI_long |> 
+  group_by(Index) |> 
+  get_summary_stats(value, type = "mean_sd")
+```
+
+```{r}
+data_obj3_filtered_tdeI_long |> 
+  group_by(Index, modpob) |> 
+  get_summary_stats(value, type = "mean_sd")
+```
+
+```{r}
+res.aov_tdeI_ob3 <- anova_test(
+  data = data_obj3_filtered_tdeI_long,
+  dv = value,
+  wid = ID,
+  within = Index,
+  between = c(modpob, MR, N),
+  type = 3,
+  effect.size = "pes"
+)
+
+get_anova_table(res.aov_tdeI_ob3)
+
+performance::check_model(res.aov_tdeI_ob3)
+
+#modpob MR N modpob*MR modpob*N MR*N modpob*MR*N.
+```
+
+```{r}
+#otra opción
+#decision_WAIC_cond, decision_LOO_cond, decision_AIC_cond, decision_BIC_cond
+aov_tdI_3 <- aov_ez(
+  id = "ID",                  # Unique subject identifier
+  dv = "value",               # Dependent variable
+  data = data_obj3_filtered_tdeI_long,                # Data frame
+  within = "Index",          # Within-subjects factor
+  between = c("modpob", "MR", "N"),  # Between-subjects factors; delete TE as it only has one level (TE == 0)
+  type = 3,                   # type III sum of squares
+  detailed = TRUE             # detailed output
+)
+
+aov_tdI_3
+
+effectsize::eta_squared(aov_tdI_3)
+
+emmeans_tdI_3 <- emmeans(aov_tdI_3, ~ modpob * Index)
+emmeans_tdI_3_df <- as_tibble(emmeans_tdI_3)
+
+ggplot(emmeans_tdI_3_df, aes(x = modpob, y = emmean, group = Index, color = Index)) +
+  geom_line(size = 1) + 
+  geom_point(size = 3) +
+  labs(
+    title = "Tasa de error tipo I condicionada a la selección del modelo según el modelo poblacional",
+    x = "Modelo poblacional",
+    y = "Medias marginales estimadas",
+    color = "Índice de ajuste relativo"
+  ) +
+  scale_x_discrete(labels = c("Minimal", "Partial - Intercepts", "Parcial - Slopes", "Maximal")) +
+  scale_color_manual(
+    values = wes_palette("Darjeeling1")[c(3, 4, 1, 2)], # Colores personalizados
+    labels = c("BIC", "AIC", "WAIC", "LOO") # Etiquetas personalizadas
+  ) +
+   scale_y_continuous(
+    limits = c(0, 0.2), # Ajustar límites del eje Y
+    breaks = seq(0, 0.2, by = 0.05), # Personalizar los ticks del eje Y
+    labels = scales::label_number(accuracy = 0.01) # Formato de etiquetas (2 decimales)
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 10, face = "bold"),
+    axis.text = element_text(size = 8),
+    axis.title = element_text(size = 10),
+    legend.title = element_text(size = 10),
+    legend.text = element_text(size = 8),
+    panel.grid.major.x = element_blank() # Quitar gridlines verticales
+  )
+
+ggsave("error_tipo_I_condicionado.svg", device = "svg", width = 8, height = 6)
+```
